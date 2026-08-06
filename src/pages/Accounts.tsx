@@ -64,7 +64,7 @@ export default function Accounts() {
     } catch (err) {
       console.error("Microsoft login failed", err);
       setError(
-        "No se pudo iniciar sesión con Microsoft. Verifica que configuraste el Client ID de Azure en el backend."
+        typeof err === "string" ? err : "No se pudo completar el inicio de sesión con Microsoft. Intenta nuevamente."
       );
     } finally {
       setMsLoading(false);

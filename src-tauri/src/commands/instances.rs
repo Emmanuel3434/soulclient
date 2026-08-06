@@ -341,12 +341,25 @@ pub async fn launch_instance(
     let mods_dir = instance_dir.join("mods");
     std::fs::create_dir_all(&mods_dir).ok();
 
-    let account = state
+    let mut account = state
         .accounts
         .list()
         .into_iter()
         .find(|a| a.id == account_id)
         .ok_or_else(|| AppError::from("Account not found"))?;
+
+    if account.account_type == crate::auth::AccountType::Premium && account.refresh_token.is_some() {
+        let is_expired = account
+            .expires_at
+            .map(|exp| chrono::Utc::now().timestamp_millis() + 60_000 >= exp)
+            .unwrap_or(true);
+        if is_expired || account.access_token.is_none() {
+            if let Ok(refreshed) = crate::auth::microsoft::refresh_microsoft_account(&state.http_client, &account).await {
+                let _ = state.accounts.update(refreshed.clone());
+                account = refreshed;
+            }
+        }
+    }
 
     let settings = state.settings.get();
     let java_bin = crate::downloader::java::resolve_java(

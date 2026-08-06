@@ -111,12 +111,18 @@ pub fn launch(
         .unwrap_or(version_id);
     placeholders.insert("assets_index_name", asset_index_id.to_string());
     placeholders.insert("auth_uuid", account.uuid.clone());
-    placeholders.insert(
-        "auth_access_token",
-        account.access_token.clone().unwrap_or_else(|| "0".to_string()),
-    );
-    placeholders.insert("user_type", "msa".to_string());
+    let (user_type, access_token) = match account.account_type {
+        crate::auth::AccountType::Premium => (
+            "msa".to_string(),
+            account.access_token.clone().unwrap_or_else(|| "0".to_string()),
+        ),
+        crate::auth::AccountType::Offline => ("legacy".to_string(), "0".to_string()),
+    };
+    placeholders.insert("auth_access_token", access_token);
+    placeholders.insert("user_type", user_type);
+    placeholders.insert("user_properties", "{}".to_string());
     placeholders.insert("version_type", "SoulClient".to_string());
+
 
     // LWJGL/GLFW/OpenAL need their native libraries as loose files on disk,
     // not sitting inside a `natives-<os>.jar`. Without this the JVM starts

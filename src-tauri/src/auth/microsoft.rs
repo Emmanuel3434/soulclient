@@ -1,17 +1,6 @@
-//! Real implementation of the Microsoft -> Xbox Live -> XSTS -> Minecraft
-//! authentication chain, using the OAuth2 "device code" flow (no embedded
-//! browser/webview needed - the user authorizes in their default browser).
-//!
-//! To actually use this you must:
-//!   1. Register an application at https://portal.azure.com (Azure AD),
-//!      as a "Public client / native" application.
-//!   2. Enable the "XboxLive.signin" and "offline_access" delegated permissions.
-//!   3. Put the generated Client ID into `MS_CLIENT_ID` below (or load it
-//!      from settings/env instead of hardcoding).
-//!
-//! Without a real Client ID this flow will fail at `request_device_code`
-//! with an "invalid client" error from Microsoft's endpoint - that's
-//! expected until the launcher owner registers their own app.
+//! Pure client-side implementation of Microsoft -> Xbox Live -> XSTS -> Minecraft
+//! authentication chain using official live.com device code flow.
+//! No backend server or custom Azure AD app setup required.
 
 use super::{Account, AccountType};
 use crate::utils::{AppError, AppResult};
@@ -19,8 +8,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const MS_CLIENT_ID: &str = "b713e46a-6871-41fd-9ea0-b4b834cacfcb";
-const MS_SCOPE: &str = "XboxLive.signin offline_access";
+const MS_CLIENT_ID: &str = "00000000402b5328";
+const MS_SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DeviceCodeResponse {
@@ -77,8 +66,12 @@ struct McCape {
 /// Step 1: request a device code the user will enter at microsoft.com/link.
 pub async fn request_device_code(client: &reqwest::Client) -> AppResult<DeviceCodeResponse> {
     let resp = client
-        .post("https://login.microsoftonline.com/common/oauth2/v2.0/devicecode")
-        .form(&[("client_id", MS_CLIENT_ID), ("scope", MS_SCOPE)])
+        .post("https://login.live.com/oauth20_connect.srf")
+        .form(&[
+            ("client_id", MS_CLIENT_ID),
+            ("scope", MS_SCOPE),
+            ("response_type", "device_code"),
+        ])
         .send()
         .await?
         .error_for_status()
@@ -122,16 +115,17 @@ async fn poll_ms_token(
     expires_in_secs: u64,
 ) -> AppResult<MsTokenResponse> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(expires_in_secs);
+    let interval = interval_secs.max(2);
 
     loop {
         if tokio::time::Instant::now() >= deadline {
             return Err(AppError::Other("Device code expired".into()));
         }
 
-        tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
 
         let resp = client
-            .post("https://login.microsoftonline.com/common/oauth2/v2.0/token")
+            .post("https://login.live.com/oauth20_token.srf")
             .form(&[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("client_id", MS_CLIENT_ID),
@@ -144,13 +138,54 @@ async fn poll_ms_token(
             return Ok(resp.json::<MsTokenResponse>().await?);
         }
 
-        // authorization_pending -> keep polling; anything else -> bail out.
         let body: serde_json::Value = resp.json().await.unwrap_or_default();
         let error = body.get("error").and_then(|v| v.as_str()).unwrap_or("");
         if error != "authorization_pending" && error != "slow_down" {
             return Err(AppError::Other(format!("Microsoft login failed: {error}")));
         }
     }
+}
+
+/// Refreshes an existing Premium account's Minecraft access token using its refresh token.
+pub async fn refresh_microsoft_account(
+    client: &reqwest::Client,
+    account: &Account,
+) -> AppResult<Account> {
+    let refresh_token = account
+        .refresh_token
+        .as_deref()
+        .ok_or_else(|| AppError::Other("No refresh token available".into()))?;
+
+    let resp = client
+        .post("https://login.live.com/oauth20_token.srf")
+        .form(&[
+            ("grant_type", "refresh_token"),
+            ("client_id", MS_CLIENT_ID),
+            ("refresh_token", refresh_token),
+        ])
+        .send()
+        .await?
+        .error_for_status()
+        .map_err(|e| AppError::Other(format!("Failed to refresh MS token: {e}")))?;
+
+    let ms_token = resp.json::<MsTokenResponse>().await?;
+    let xbl_token = authenticate_xbl(client, &ms_token.access_token).await?;
+    let (xsts_token, user_hash) = authenticate_xsts(client, &xbl_token).await?;
+    let mc_token = authenticate_minecraft(client, &user_hash, &xsts_token).await?;
+    let profile = fetch_profile(client, &mc_token).await?;
+
+    let mut updated = account.clone();
+    updated.username = profile.name;
+    updated.uuid = profile.id;
+    updated.skin_url = profile.skins.first().map(|s| s.url.clone());
+    updated.cape_url = profile.capes.and_then(|c| c.into_iter().next()).map(|c| c.url);
+    updated.access_token = Some(mc_token);
+    if ms_token.refresh_token.is_some() {
+        updated.refresh_token = ms_token.refresh_token;
+    }
+    updated.expires_at = Some(Utc::now().timestamp_millis() + ms_token.expires_in * 1000);
+
+    Ok(updated)
 }
 
 #[derive(Serialize)]
@@ -288,3 +323,4 @@ async fn fetch_profile(client: &reqwest::Client, mc_access_token: &str) -> AppRe
         .json::<McProfileResponse>()
         .await?)
 }
+

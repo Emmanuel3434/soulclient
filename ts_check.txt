@@ -1,0 +1,53 @@
+﻿node : node:internal/module
+s/cjs/loader:1459
+En línea: 1 Carácter: 1
++ node node_modules/typescr
+ipt/lib/tsc.js --noEmit 
+2>&1 | Out-File -Fil ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~
+    + CategoryInfo         
+     : NotSpecified: (nod  
+  e:internal/modules/cjs   
+ /loader:1459:String) [    
+], RemoteException
+    + FullyQualifiedErrorI 
+   d : NativeCommandError
+ 
+  throw err;
+  ^
+
+Error: Cannot find module '
+C:\Users\Dell\Videos\SoulCl
+ient4_WIP\soulclient\node_m
+odules\typescript\lib\tsc.j
+s'
+    at 
+Module._resolveFilename (no
+de:internal/modules/cjs/loa
+der:1456:15)
+    at defaultResolveImpl (
+node:internal/modules/cjs/l
+oader:1066:19)
+    at 
+resolveForCJSWithHooks (nod
+e:internal/modules/cjs/load
+er:1071:22)
+    at Module._load (node:i
+nternal/modules/cjs/loader:
+1242:25)
+    at wrapModuleLoad (node
+:internal/modules/cjs/loade
+r:255:19)
+    at Module.executeUserEn
+tryPoint [as runMain] (node
+:internal/modules/run_main:
+154:5)
+    at node:internal/main/r
+un_main_module:33:47 {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+
+Node.js v24.14.1

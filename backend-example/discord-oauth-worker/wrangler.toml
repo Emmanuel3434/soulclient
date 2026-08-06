@@ -1,0 +1,10 @@
+name = "soulclient-discord-oauth"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+
+# DISCORD_CLIENT_ID is not secret, safe to keep here as a plain var.
+[vars]
+DISCORD_CLIENT_ID = "1492641149494755370"
+
+# DISCORD_CLIENT_SECRET must NOT go here (this file is often committed).
+# Set it with: npm run secret:set

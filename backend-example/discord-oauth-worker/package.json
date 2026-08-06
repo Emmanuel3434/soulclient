@@ -1,0 +1,14 @@
+{
+  "name": "soulclient-discord-oauth-worker",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "secret:set": "wrangler secret put DISCORD_CLIENT_SECRET"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "wrangler": "^3.90.0"
+  }
+}

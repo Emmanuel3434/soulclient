@@ -21,10 +21,19 @@ export interface Env {
 
 const DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...corsHeaders,
+    },
   });
 }
 
@@ -48,6 +57,10 @@ async function discordTokenRequest(env: Env, params: Record<string, string>) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    if (request.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: corsHeaders });
+    }
+
     const url = new URL(request.url);
 
     if (request.method !== "POST") {

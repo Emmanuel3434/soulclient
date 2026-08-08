@@ -109,20 +109,6 @@ export default function Settings() {
           />
         </Card>
 
-        <Card>
-          <p className="text-sm font-medium mb-1">URL del backend</p>
-          <p className="text-xs text-neutral-500 mb-2">
-            Base de la API del backend (catálogo de instancias y gestión de usuarios).
-            Déjala vacía si no la usas.
-          </p>
-          <input
-            value={local.discordTokenExchangeUrl}
-            onChange={(e) => set("discordTokenExchangeUrl", e.target.value)}
-            placeholder="https://tu-worker.example.com"
-            className="input"
-          />
-        </Card>
-
         {isAdmin && (
           <Card>
             <p className="text-sm font-medium mb-1">Token de publicación (solo administradores)</p>

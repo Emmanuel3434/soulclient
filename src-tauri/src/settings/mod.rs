@@ -109,7 +109,7 @@ impl Default for LauncherSettings {
             auto_update: true,
             publish_token: String::new(),
             admin_token: String::new(),
-            discord_token_exchange_url: String::new(),
+            discord_token_exchange_url: "https://soulclient.emanuelz343445.workers.dev".to_string(),
         }
     }
 }
@@ -132,6 +132,9 @@ impl SettingsStore {
         // Siempre refrescar la RAM del sistema al arrancar — el hardware puede
         // haber cambiado entre sesiones y no queremos mostrar valores stale.
         settings.system_ram_mb = get_available_ram_mb();
+        if settings.discord_token_exchange_url.trim().is_empty() {
+            settings.discord_token_exchange_url = "https://soulclient.emanuelz343445.workers.dev".to_string();
+        }
         Self {
             inner: RwLock::new(settings),
         }

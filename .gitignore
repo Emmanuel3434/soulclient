@@ -5,3 +5,6 @@ src-tauri/target
 log.txt
 gnu_log.txt
 vite_build.txt
+.env
+.env.local
+.env.*.local

@@ -217,7 +217,14 @@ pub fn launch(
     let game_args = build_game_args(version_json, &placeholders, instance);
     jvm_args.extend(game_args);
 
-    tracing::info!("Launching {} with {} args", java_bin.display(), jvm_args.len());
+    let provider = match account.account_type {
+        crate::auth::AccountType::Premium => "Microsoft",
+        crate::auth::AccountType::Offline => "Discord / Offline",
+    };
+    tracing::info!("Authentication provider: {provider}");
+    tracing::info!("Account type: {user_type}");
+    tracing::info!("Preparing Minecraft profile for username: {}, uuid: {}", account.username, account.uuid);
+    tracing::info!("Launching {} ({}) with {} args", java_bin.display(), instance.version, jvm_args.len());
 
     let mut command = Command::new(java_bin);
     command
@@ -353,7 +360,12 @@ fn build_game_args(
     let mut args: Vec<String> = Vec::new();
 
     if let Some(flat) = version_json.get("minecraftArguments").and_then(|a| a.as_str()) {
-        args.extend(flat.split_whitespace().map(|s| substitute(s, placeholders)));
+        for s in flat.split_whitespace() {
+            let substituted = substitute(s, placeholders);
+            if substituted != "--demo" {
+                args.push(substituted);
+            }
+        }
     } else if let Some(game) = version_json
         .get("arguments")
         .and_then(|a| a.get("game"))
@@ -361,15 +373,44 @@ fn build_game_args(
     {
         for entry in game {
             if let Some(s) = entry.as_str() {
-                args.push(substitute(s, placeholders));
+                let substituted = substitute(s, placeholders);
+                if substituted != "--demo" {
+                    args.push(substituted);
+                }
             } else if let Some(obj) = entry.as_object() {
+                // Check rules attached to this argument entry
+                let mut allow_entry = true;
+                if let Some(rules) = obj.get("rules").and_then(|r| r.as_array()) {
+                    for rule in rules {
+                        let action = rule.get("action").and_then(|a| a.as_str()).unwrap_or("allow");
+                        if let Some(features) = rule.get("features").and_then(|f| f.as_object()) {
+                            // Rule requires demo status — reject for full accounts
+                            if features.get("is_demo_user").and_then(|v| v.as_bool()).unwrap_or(false) {
+                                if action == "allow" {
+                                    allow_entry = false;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if !allow_entry {
+                    continue;
+                }
+
                 if let Some(val) = obj.get("value") {
                     if let Some(s) = val.as_str() {
-                        args.push(substitute(s, placeholders));
+                        let substituted = substitute(s, placeholders);
+                        if substituted != "--demo" {
+                            args.push(substituted);
+                        }
                     } else if let Some(arr) = val.as_array() {
                         for item in arr {
                             if let Some(s) = item.as_str() {
-                                args.push(substitute(s, placeholders));
+                                let substituted = substitute(s, placeholders);
+                                if substituted != "--demo" {
+                                    args.push(substituted);
+                                }
                             }
                         }
                     }

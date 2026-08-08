@@ -8,7 +8,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-const MS_CLIENT_ID: &str = "00000000402b5328";
+pub const MS_CLIENT_ID: &str = "853ca6f9-26ca-457a-b132-ed0afde994e1";
+pub const MS_TENANT_ID: &str = "b713e46a-6871-41fd-9ea0-b4b834cacfcb";
 const MS_SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
 
 #[derive(Debug, Clone, Deserialize)]

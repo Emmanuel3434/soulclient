@@ -3,8 +3,28 @@ import type { DiscordSession } from "@/types/discord";
 
 // Configuración de Supabase
 const env = (import.meta as any).env || {};
-const SUPABASE_URL = (env.VITE_SUPABASE_URL as string) || "https://xyzcompany.supabase.co";
-const SUPABASE_ANON_KEY = (env.VITE_SUPABASE_ANON_KEY as string) || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_key";
+export const SUPABASE_URL =
+  (env.VITE_SUPABASE_URL as string) ||
+  (env.NEXT_PUBLIC_SUPABASE_URL as string) ||
+  (env.SUPABASE_URL as string) ||
+  "https://tryqwbidrcmdhkyllxti.supabase.co";
+
+export const SUPABASE_ANON_KEY =
+  (env.VITE_SUPABASE_PUBLISHABLE_KEY as string) ||
+  (env.VITE_SUPABASE_ANON_KEY as string) ||
+  (env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY as string) ||
+  (env.SUPABASE_PUBLISHABLE_KEY as string) ||
+  "sb_publishable_f-pNX3Wp-nBVXV2T7oJbHA_BGBCIdC7";
+
+export const SUPABASE_SECRET_KEY =
+  (env.VITE_SUPABASE_SECRET_KEY as string) ||
+  (env.SUPABASE_SECRET_KEY as string) ||
+  "";
+
+export const SUPABASE_JWKS_URL =
+  (env.VITE_SUPABASE_JWKS_URL as string) ||
+  (env.SUPABASE_JWKS_URL as string) ||
+  "https://tryqwbidrcmdhkyllxti.supabase.co/auth/v1/.well-known/jwks.json";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 

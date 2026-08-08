@@ -119,7 +119,7 @@ pub fn launch(
         crate::auth::AccountType::Offline => ("legacy".to_string(), "0".to_string()),
     };
     placeholders.insert("auth_access_token", access_token);
-    placeholders.insert("user_type", user_type);
+    placeholders.insert("user_type", user_type.clone());
     placeholders.insert("user_properties", "{}".to_string());
     placeholders.insert("version_type", "SoulClient".to_string());
 

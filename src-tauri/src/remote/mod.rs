@@ -523,12 +523,27 @@ pub async fn install(
     }
     out.flush().await?;
 
-    let actual = sha256_file(&zip_path)?;
-    if !meta.sha256.eq_ignore_ascii_case(&actual) {
-        let _ = std::fs::remove_file(&zip_path);
-        return Err(AppError::from(
-            "La descarga no pasó la verificación SHA-256. Inténtalo de nuevo.",
-        ));
+    // Verificación SHA-256: solo ejecutar si el servidor proporcionó un hash
+    // (las instancias obtenidas directamente de Supabase no tienen columna sha256,
+    // por lo que el campo llega vacío — omitir la verificación en ese caso).
+    if !meta.sha256.is_empty() {
+        let actual = sha256_file(&zip_path)?;
+        if !meta.sha256.eq_ignore_ascii_case(&actual) {
+            let _ = std::fs::remove_file(&zip_path);
+            tracing::error!(
+                "SHA-256 mismatch for instance {remote_id}: expected={} got={}",
+                meta.sha256,
+                actual
+            );
+            return Err(AppError::from(
+                "La descarga no pasó la verificación SHA-256. Inténtalo de nuevo.",
+            ));
+        }
+        tracing::info!("SHA-256 verified OK for instance {remote_id}");
+    } else {
+        tracing::warn!(
+            "Instancia {remote_id} no tiene SHA-256 registrado — verificación de integridad omitida."
+        );
     }
 
     emit("extract", None, 0, 0, "Extrayendo instancia...".into());

@@ -367,3 +367,75 @@ export async function redeemAccessCode(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Noticias / Notificaciones del Admin
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface SupabaseNewsItem {
+  id: string;
+  title: string;
+  body: string | null;
+  tag: string;
+  emoji: string;
+  image_path: string | null;
+  published_at: string;
+}
+
+/**
+ * Obtiene todas las noticias/notificaciones desde Supabase,
+ * ordenadas por fecha de publicación (más recientes primero).
+ * Estas son las noticias creadas desde el Panel de Administración.
+ */
+export async function getSupabaseNews(): Promise<SupabaseNewsItem[]> {
+  try {
+    const { data, error } = await supabase
+      .from("news")
+      .select("*")
+      .order("published_at", { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.warn("Error al obtener noticias desde Supabase:", error);
+      return [];
+    }
+    return (data as SupabaseNewsItem[]) || [];
+  } catch (err) {
+    console.warn("Fallo al conectar con Supabase para noticias:", err);
+    return [];
+  }
+}
+
+/**
+ * Suscribe a cambios en tiempo real de la tabla `news` de Supabase.
+ * Llama a `onUpdate` cuando se inserta, actualiza o elimina una noticia
+ * desde el Panel de Administración, sin necesidad de reiniciar el launcher.
+ * Devuelve una función de limpieza para cancelar la suscripción.
+ */
+export function subscribeNewsRealtime(onUpdate: () => void): () => void {
+  const channel = supabase
+    .channel("news-realtime")
+    .on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "news" },
+      () => onUpdate()
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "news" },
+      () => onUpdate()
+    )
+    .on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "news" },
+      () => onUpdate()
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") {
+        console.log("[Supabase Realtime] news channel suscrito OK");
+      }
+    });
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}

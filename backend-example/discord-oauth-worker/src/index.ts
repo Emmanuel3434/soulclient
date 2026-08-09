@@ -227,7 +227,12 @@ async function createSignedUploadUrl(env: Env, id: string): Promise<string | nul
     url?: string;
     error?: string;
   };
-  return data.signedUrl ?? data.signedURL ?? data.url ?? null;
+  const raw = data.signedUrl ?? data.signedURL ?? data.url ?? null;
+  if (!raw) return null;
+  if (/^https?:\/\//.test(raw)) return raw;
+  // The signed upload URL is returned relative to the storage gateway base
+  // (https://<project>.supabase.co/storage/v1), e.g. /object/upload/sign/...
+  return `${env.SUPABASE_URL}/storage/v1${raw.startsWith("/") ? "" : "/"}${raw}`;
 }
 
 async function objectExists(env: Env, id: string): Promise<boolean> {

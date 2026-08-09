@@ -522,11 +522,28 @@ pub async fn install(
         emit("download", None, done, total, format!("Descargando... {pct}%"));
     }
     out.flush().await?;
+    emit("download", None, done, total, "Descarga completada".into());
 
-    // Verificación SHA-256: solo ejecutar si el servidor proporcionó un hash
-    // (las instancias obtenidas directamente de Supabase no tienen columna sha256,
-    // por lo que el campo llega vacío — omitir la verificación en ese caso).
+    // Validar que lo descargado sea un ZIP válido antes de tocar nada más.
+    emit("verify", None, 0, 0, "Validando archivo ZIP...".into());
+    {
+        let file = std::fs::File::open(&zip_path)?;
+        if zip::ZipArchive::new(file).is_err() {
+            let _ = std::fs::remove_file(&zip_path);
+            tracing::error!("Invalid ZIP downloaded for instance {remote_id}");
+            return Err(AppError::from(
+                "El archivo descargado no es un ZIP válido. Descarga corrupta, inténtalo de nuevo.",
+            ));
+        }
+    }
+
+    // Verificación SHA-256 sobre EXACTAMENTE el ZIP descargado (no sobre la
+    // carpeta extraída). Si el servidor proporcionó un hash se compara y ante
+    // cualquier diferencia se rechaza la descarga. Si la instancia vino sin
+    // hash registrado (instancias creadas antes de existir la columna sha256)
+    // se avisa de forma visible pero no se bloquea la instalación.
     if !meta.sha256.is_empty() {
+        emit("verify", None, 0, 0, "Verificando SHA-256...".into());
         let actual = sha256_file(&zip_path)?;
         if !meta.sha256.eq_ignore_ascii_case(&actual) {
             let _ = std::fs::remove_file(&zip_path);
@@ -536,11 +553,19 @@ pub async fn install(
                 actual
             );
             return Err(AppError::from(
-                "La descarga no pasó la verificación SHA-256. Inténtalo de nuevo.",
+                "La descarga no pasó la verificación SHA-256. Archivo modificado o corrupto, inténtalo de nuevo.",
             ));
         }
+        emit("verify", None, 0, 0, "SHA-256 correcto".into());
         tracing::info!("SHA-256 verified OK for instance {remote_id}");
     } else {
+        emit(
+            "verify",
+            None,
+            0,
+            0,
+            "Sin SHA-256 registrado — verificación omitida".into(),
+        );
         tracing::warn!(
             "Instancia {remote_id} no tiene SHA-256 registrado — verificación de integridad omitida."
         );
@@ -551,6 +576,7 @@ pub async fn install(
         emit("extract", Some(file), done, total, "Extrayendo instancia...".into());
     })?;
     let _ = std::fs::remove_file(&zip_path);
+    emit("done", None, done, done, "Instancia instalada".into());
 
     let loader = match meta.loader.as_str() {
         "fabric" => LoaderType::Fabric,

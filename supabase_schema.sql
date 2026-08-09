@@ -21,8 +21,22 @@ create table if not exists public.instances (
   logo_path           text,
   background_path     text,
   content_version     integer not null default 1,
-  created_at          timestamptz not null default now()
+  created_at          timestamptz not null default now(),
+  sha256              text
 );
+
+-- Columna sha256 (hash SHA-256 del ZIP que se descarga) para verificación de
+-- integridad en el launcher. Idempotente: solo se agrega si aún no existe
+-- (por si la tabla ya fue creada sin esta columna antes).
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'instances' and column_name = 'sha256'
+  ) then
+    alter table public.instances add column sha256 text;
+  end if;
+end $$;
 
 -- ── Tabla: mods ──────────────────────────────────────────────────────────
 create table if not exists public.mods (

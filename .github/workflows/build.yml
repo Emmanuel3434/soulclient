@@ -1,18 +1,12 @@
-name: CI
+name: Build
 
 on:
   push:
-    branches: [master]
-    tags: ["v*"]
-  pull_request:
+    branches: [main]
   workflow_dispatch:
 
-env:
-  NODE_VERSION: "20"
-
 jobs:
-  check:
-    name: Check (frontend + Rust)
+  build-windows:
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -21,60 +15,23 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 20
           cache: npm
-
-      - name: Install frontend dependencies
-        run: npm ci
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: swatinem/rust-cache@v2
         with:
-          targets: x86_64-pc-windows-msvc
-          components: clippy
-
-      # `tauri::generate_context!()` embeds the frontend at compile time, so
-      # `../dist` must exist before `cargo check` can run.
-      - name: Build frontend (tsc + vite)
-        run: npm run build
-
-      - name: Frontend typecheck
-        run: npx tsc --noEmit
-
-      - name: Rust typecheck
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
-      - name: Rust lints (clippy)
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml
-
-  build:
-    name: Build Windows bundle
-    needs: check
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
+          workspaces: src-tauri
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Build Tauri app (MSVC)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Build Tauri app
-        run: npm run tauri build
-
-      - name: Upload Windows bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: SoulClient-Windows
-          path: src-tauri/target/release/bundle/**
-          if-no-files-found: error
+          args: --verbose

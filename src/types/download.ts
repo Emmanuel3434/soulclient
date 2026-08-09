@@ -1,6 +1,6 @@
 export interface DownloadProgress {
   instanceId: string;
-  stage: "manifest" | "client" | "libraries" | "assets" | "java" | "fabric" | "done" | "error";
+  stage: "manifest" | "client" | "libraries" | "assets" | "java" | "fabric" | "download" | "verify" | "extract" | "done" | "error";
   fileName?: string;
   downloadedBytes: number;
   totalBytes: number;

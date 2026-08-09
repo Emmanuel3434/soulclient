@@ -21,28 +21,55 @@ use uuid::Uuid;
 /// Size of each uploaded part (must be >= 5 MB for R2 multipart).
 const REMOTE_PART_SIZE: u64 = 64 * 1024 * 1024;
 
+fn deserialize_bool_from_anything<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de;
+    struct BoolOrIntVisitor;
+    impl<'de> de::Visitor<'de> for BoolOrIntVisitor {
+        type Value = bool;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a boolean, integer (0 or 1), or string (\"0\" or \"1\")")
+        }
+        fn visit_bool<E>(self, v: bool) -> Result<bool, E> { Ok(v) }
+        fn visit_i64<E>(self, v: i64) -> Result<bool, E> { Ok(v != 0) }
+        fn visit_u64<E>(self, v: u64) -> Result<bool, E> { Ok(v != 0) }
+        fn visit_str<E: de::Error>(self, v: &str) -> Result<bool, E> {
+            match v.trim() {
+                "true" | "1" | "t" => Ok(true),
+                "false" | "0" | "f" => Ok(false),
+                _ => Ok(false),
+            }
+        }
+    }
+    deserializer.deserialize_any(BoolOrIntVisitor)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteInstance {
     pub id: String,
     pub name: String,
     pub version: String,
+    #[serde(alias = "modloader")]
     pub loader: String,
-    #[serde(default)]
+    #[serde(default, alias = "modloader_version")]
     pub loader_version: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    pub size_bytes: u64,
-    pub sha256: String,
-    pub downloads: u64,
-    pub published_at: i64,
-    pub updated_at: i64,
-    /// Mirrors `InstanceConfig::whitelist_enabled`. Defaults to `false` so
-    /// instances published before this field existed (or returned by a
-    /// worker that doesn't echo it back yet) stay visible to everyone.
     #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub sha256: String,
+    #[serde(default)]
+    pub downloads: u64,
+    #[serde(default)]
+    pub published_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default, deserialize_with = "deserialize_bool_from_anything")]
     pub whitelist_enabled: bool,
-    /// Mirrors `InstanceConfig::allowed_discord_ids`.
     #[serde(default)]
     pub allowed_discord_ids: Vec<String>,
 }
@@ -260,14 +287,50 @@ pub async fn list(
     viewer_discord_id: Option<&str>,
     viewer_is_admin: bool,
 ) -> AppResult<Vec<RemoteInstance>> {
-    let base = api_base(settings)?;
-    let resp = client
-        .get(format!("{base}/instances"))
-        .send()
-        .await?
-        .error_for_status()
-        .map_err(|e| AppError::from(format!("Error al listar instancias: {e}")))?;
-    let all: Vec<RemoteInstance> = resp.json().await?;
+    let mut all: Vec<RemoteInstance> = Vec::new();
+
+    // 1. Intentar el endpoint {base}/instances o {base}/api.php?action=rows&table=instances
+    if let Ok(base) = api_base(settings) {
+        if let Ok(resp) = client.get(format!("{base}/instances")).send().await {
+            if resp.status().is_success() {
+                if let Ok(instances) = resp.json::<Vec<RemoteInstance>>().await {
+                    all = instances;
+                }
+            }
+        }
+
+        if all.is_empty() {
+            if let Ok(resp) = client.get(format!("{base}/api.php?action=rows&table=instances")).send().await {
+                if resp.status().is_success() {
+                    #[derive(Deserialize)]
+                    struct ApiResponse {
+                        rows: Vec<RemoteInstance>,
+                    }
+                    if let Ok(data) = resp.json::<ApiResponse>().await {
+                        all = data.rows;
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Si la lista sigue vacía, consultar la API REST de Supabase directamente
+    if all.is_empty() {
+        let supabase_url = "https://tryqwbidrcmdhkyllxti.supabase.co/rest/v1/instances?select=*";
+        let supabase_key = "sb_publishable_f-pNX3Wp-nBVXV2T7oJbHA_BGBCIdC7";
+        if let Ok(resp) = client
+            .get(supabase_url)
+            .header("apikey", supabase_key)
+            .send()
+            .await
+        {
+            if resp.status().is_success() {
+                if let Ok(instances) = resp.json::<Vec<RemoteInstance>>().await {
+                    all = instances;
+                }
+            }
+        }
+    }
 
     let visible = all
         .into_iter()
@@ -277,14 +340,10 @@ pub async fn list(
 }
 
 pub async fn get(client: &Client, settings: &LauncherSettings, id: &str) -> AppResult<RemoteInstance> {
-    let base = api_base(settings)?;
-    let resp = client
-        .get(format!("{base}/instances/{id}"))
-        .send()
-        .await?
-        .error_for_status()
-        .map_err(|e| AppError::from(format!("Instancia remota no encontrada: {e}")))?;
-    Ok(resp.json().await?)
+    let all = list(client, settings, None, true).await?;
+    all.into_iter()
+        .find(|inst| inst.id == id)
+        .ok_or_else(|| AppError::from(format!("Instancia remota no encontrada: {id}")))
 }
 
 pub async fn publish(

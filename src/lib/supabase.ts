@@ -236,3 +236,134 @@ export async function logUserLogin(discordId: string, username: string): Promise
     console.warn("Error al registrar log de inicio de sesión:", err);
   }
 }
+
+export interface SupabaseInstance {
+  id: string;
+  name: string;
+  version: string;
+  modloader: "vanilla" | "fabric" | "forge" | "quilt";
+  modloader_version?: string;
+  icon?: string;
+  description?: string;
+  whitelist_enabled: boolean;
+  logo_path?: string;
+  background_path?: string;
+  content_version: number;
+  created_at: string;
+}
+
+export interface SupabaseMod {
+  id: string;
+  instance_id: string;
+  file_name: string;
+  storage_path?: string;
+  sha1?: string;
+  size_bytes?: number;
+  source: string;
+  download_url?: string;
+  created_at: string;
+}
+
+export interface SupabaseConfigFile {
+  id: string;
+  instance_id: string;
+  target_path: string;
+  storage_path?: string;
+  sha1?: string;
+  size_bytes?: number;
+  source: string;
+  download_url?: string;
+  created_at: string;
+}
+
+/**
+ * Consulta todas las instancias disponibles directamente desde Supabase.
+ */
+export async function getSupabaseInstances(): Promise<SupabaseInstance[]> {
+  try {
+    const { data, error } = await supabase
+      .from("instances")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.warn("Error al obtener instancias desde Supabase:", error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.warn("Fallo al conectar con Supabase:", err);
+    return [];
+  }
+}
+
+/**
+ * Obtiene la lista de mods asociados a una instancia desde Supabase.
+ */
+export async function getSupabaseInstanceMods(instanceId: string): Promise<SupabaseMod[]> {
+  try {
+    const { data, error } = await supabase
+      .from("mods")
+      .select("*")
+      .eq("instance_id", instanceId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.warn("Error al obtener mods desde Supabase:", error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.warn("Error al consultar mods en Supabase:", err);
+    return [];
+  }
+}
+
+/**
+ * Obtiene los archivos de configuración de una instancia desde Supabase.
+ */
+export async function getSupabaseInstanceConfigs(instanceId: string): Promise<SupabaseConfigFile[]> {
+  try {
+    const { data, error } = await supabase
+      .from("config_files")
+      .select("*")
+      .eq("instance_id", instanceId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.warn("Error al obtener configs desde Supabase:", error);
+      return [];
+    }
+    return data || [];
+  } catch (err) {
+    console.warn("Error al consultar configs en Supabase:", err);
+    return [];
+  }
+}
+
+/**
+ * Canjea un código de acceso mediante la función RPC de Supabase `redeem_code`.
+ */
+export async function redeemAccessCode(
+  code: string,
+  provider: "discord" | "microsoft",
+  externalId: string,
+  displayName?: string
+): Promise<{ success: boolean; instance_id?: string; already_had_access?: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("redeem_code", {
+      p_code: code,
+      p_provider: provider,
+      p_external_id: externalId,
+      p_display_name: displayName || null,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    return data as any;
+  } catch (err) {
+    return { success: false, error: "No se pudo conectar con Supabase para canjear el código." };
+  }
+}
+

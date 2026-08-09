@@ -35,3 +35,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --verbose
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: SoulClient-installer
+          path: src-tauri/target/release/bundle/
+          if-no-files-found: error

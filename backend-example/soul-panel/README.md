@@ -52,3 +52,24 @@ guardado; si no, rechaza la instalación.
 - `GET api.php?action=sign_upload&id=<uuid>` → `{ "signedUrl": "https://…" }`
 - `POST api.php?action=finalize_publish&id=<uuid>` con body
   `{ "sha256": "…", "size_bytes": 123 }` → actualiza la fila
+- `GET api.php?action=catalog` → catálogo en formato camelCase (el del launcher)
+- `GET api.php?action=download&id=<uuid>` → 302 al ZIP público en Storage
+
+## Rutas del launcher (Apache: subí también `.htaccess`)
+
+El launcher consulta `{tudominio}/instances` y `{tudominio}/instances/{id}/download`
+(donde `{tudominio}` es el **origen** de la URL que configures en Ajustes →
+URL de backend). El `.htaccess` incluido mapea esas rutas a `api.php`:
+
+```
+/instances               -> api.php?action=catalog
+/instances/{id}/download -> api.php?action=download&id={id}
+```
+
+Subí `api.php`, `index.html`, `config.php` y `.htaccess` a la **raíz** de tu
+hosting (public_html). En NGINX usá un bloque equivalente:
+
+```nginx
+location /instances { rewrite ^/instances$ /api.php?action=catalog last; }
+location ~ ^/instances/([^/]+)/download$ { rewrite ^/instances/([^/]+)/download$ /api.php?action=download&id=$1 last; }
+```

@@ -1,0 +1,15 @@
+# SoulPanel — rutas que consume el launcher (mismas del worker de Cloudflare).
+# SUBÍ ESTE ARCHIVO AL MISMO DIRECTORIO QUE api.php (idealmente la raíz del
+# hosting, public_html/). El launcher llama {tudominio}/instances y
+# {tudominio}/instances/{id}/download; sin estas reglas esas URLs dan 404.
+#
+# Si tu hosting usa NGINX en vez de Apache, estas reglas no aplican: necesitás
+# un bloque location equivalente (ver README.md).
+
+RewriteEngine On
+
+# GET /instances                 -> catálogo camelCase (action=catalog)
+RewriteRule ^instances$ api.php?action=catalog [L,QSA]
+
+# GET /instances/{id}/download   -> redirige al ZIP público en Supabase Storage
+RewriteRule ^instances/([^/]+)/download$ api.php?action=download&id=$1 [L,QSA]

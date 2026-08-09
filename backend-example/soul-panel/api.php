@@ -86,6 +86,55 @@ function storageSignedUploadUrl($id) {
   return SUPABASE_URL . '/storage/v1' . ($raw[0] === '/' ? '' : '/') . $raw;
 }
 
+// Convierte un timestamp de Supabase (ISO string o epoch ms) a ms epoch.
+function tsToMs($v, $fallback = 0) {
+  if (is_numeric($v)) return (int)$v;
+  if (is_string($v) && $v !== '') {
+    $n = strtotime($v);
+    return $n !== false ? $n * 1000 : $fallback;
+  }
+  return $fallback;
+}
+
+// Mapea una fila de la tabla `instances` (snake_case) a la forma que espera
+// el launcher (camelCase, igual que toRemote() en el worker de Cloudflare).
+function instanceRowToRemote($row) {
+  return [
+    'id' => (string)($row['id'] ?? ''),
+    'name' => (string)($row['name'] ?? ''),
+    'version' => (string)($row['version'] ?? ''),
+    'loader' => (string)($row['modloader'] ?? 'vanilla'),
+    'loaderVersion' => $row['modloader_version'] ?? null,
+    'description' => $row['description'] ?? null,
+    'sizeBytes' => (int)($row['size_bytes'] ?? 0),
+    'sha256' => (string)($row['sha256'] ?? ''),
+    'downloads' => (int)($row['downloads'] ?? 0),
+    'publishedAt' => tsToMs($row['published_at'] ?? null, tsToMs($row['created_at'] ?? null, 0)),
+    'updatedAt' => tsToMs($row['updated_at'] ?? null, tsToMs($row['created_at'] ?? null, 0)),
+    'whitelistEnabled' => (bool)($row['whitelist_enabled'] ?? false),
+    'allowedDiscordIds' => array_map('strval', (array)($row['allowed_discord_ids'] ?? [])),
+  ];
+}
+
+// Comprueba con un HEAD si el ZIP {id}.zip existe en el bucket.
+function storageObjectExists($id) {
+  $ch = curl_init(SUPABASE_URL . '/storage/v1/object/' . SUPABASE_BUCKET . '/' . rawurlencode($id) . '.zip');
+  curl_setopt_array($ch, [
+    CURLOPT_CUSTOMREQUEST => 'HEAD',
+    CURLOPT_HTTPHEADER => [
+      'apikey: ' . SUPABASE_SECRET_KEY,
+      'Authorization: Bearer ' . SUPABASE_SECRET_KEY,
+    ],
+    CURLOPT_NOBODY => true,
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 15,
+  ]);
+  curl_exec($ch);
+  $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  curl_close($ch);
+  return $status >= 200 && $status < 300;
+}
+
 $action = $_GET['action'] ?? '';
 $table = $_GET['table'] ?? '';
 $id = $_GET['id'] ?? null;
@@ -165,6 +214,28 @@ try {
       ], ['Prefer: return=representation']);
       echo json_encode(['ok' => true, 'row' => $result['body'][0] ?? null]);
       break;
+
+    case 'catalog':
+      // Lista de instancias en el formato camelCase que espera el launcher
+      // (endpoint {base}/instances del worker). La UI del panel sigue usando
+      // `action=rows` con snake_case, así que este no rompe nada.
+      $result = supabaseRequest('GET', 'instances?select=*&order=created_at.desc');
+      echo json_encode(array_map('instanceRowToRemote', $result['body'] ?? []));
+      break;
+
+    case 'download':
+      // El launcher pide {base}/instances/{id}/download (vía rewrite del
+      // .htaccess -> api.php?action=download&id=...). Respondemos 302 hacia
+      // el ZIP público en Supabase Storage; el launcher lo sigue y verifica
+      // el SHA-256 contra la fila de la instancia.
+      if (!$id) { http_response_code(400); echo json_encode(['error' => 'Falta id']); break; }
+      if (!storageObjectExists($id)) {
+        http_response_code(404);
+        echo json_encode(['error' => 'Instancia no encontrada o sin archivo publicado']);
+        break;
+      }
+      header('Location: ' . SUPABASE_URL . '/storage/v1/object/public/' . SUPABASE_BUCKET . '/' . rawurlencode($id) . '.zip', true, 302);
+      exit;
 
     default:
       http_response_code(400);

@@ -10,7 +10,6 @@ use uuid::Uuid;
 
 pub const MS_CLIENT_ID: &str = "853ca6f9-26ca-457a-b132-ed0afde994e1";
 pub const MS_TENANT_ID: &str = "b713e46a-6871-41fd-9ea0-b4b834cacfcb";
-const MS_SCOPE: &str = "service::user.auth.xboxlive.com::MBI_SSL";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct DeviceCodeResponse {
@@ -67,11 +66,13 @@ struct McCape {
 /// Step 1: request a device code the user will enter at microsoft.com/link.
 pub async fn request_device_code(client: &reqwest::Client) -> AppResult<DeviceCodeResponse> {
     let resp = client
-        .post("https://login.live.com/oauth20_connect.srf")
+        .post(format!(
+            "https://login.microsoftonline.com/{}/oauth2/v2.0/devicecode",
+            MS_TENANT_ID
+        ))
         .form(&[
             ("client_id", MS_CLIENT_ID),
-            ("scope", MS_SCOPE),
-            ("response_type", "device_code"),
+            ("scope", "XboxLive.signin offline_access"),
         ])
         .send()
         .await?
@@ -126,7 +127,10 @@ async fn poll_ms_token(
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
 
         let resp = client
-            .post("https://login.live.com/oauth20_token.srf")
+            .post(format!(
+                "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
+                MS_TENANT_ID
+            ))
             .form(&[
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("client_id", MS_CLIENT_ID),
@@ -158,11 +162,15 @@ pub async fn refresh_microsoft_account(
         .ok_or_else(|| AppError::Other("No refresh token available".into()))?;
 
     let resp = client
-        .post("https://login.live.com/oauth20_token.srf")
+        .post(format!(
+            "https://login.microsoftonline.com/{}/oauth2/v2.0/token",
+            MS_TENANT_ID
+        ))
         .form(&[
             ("grant_type", "refresh_token"),
             ("client_id", MS_CLIENT_ID),
             ("refresh_token", refresh_token),
+            ("scope", "XboxLive.signin offline_access"),
         ])
         .send()
         .await?

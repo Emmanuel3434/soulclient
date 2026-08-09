@@ -2,9 +2,12 @@ name = "soulclient-discord-oauth"
 main = "src/index.ts"
 compatibility_date = "2024-11-01"
 
-# DISCORD_CLIENT_ID is not secret, safe to keep here as a plain var.
+# Public (non-secret) env vars
 [vars]
 DISCORD_CLIENT_ID = "1492641149494755370"
+SUPABASE_URL = "https://tryqwbidrcmdhkyllxti.supabase.co"
+SUPABASE_PUBLISHABLE_KEY = "sb_publishable_f-pNX3Wp-nBVXV2T7oJbHA_BGBCIdC7"
 
-# DISCORD_CLIENT_SECRET must NOT go here (this file is often committed).
-# Set it with: npm run secret:set
+# Secrets (set via CLI – NEVER commit these):
+#   wrangler secret put DISCORD_CLIENT_SECRET
+#   wrangler secret put SUPABASE_SECRET_KEY

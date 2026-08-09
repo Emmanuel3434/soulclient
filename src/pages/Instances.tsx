@@ -31,6 +31,7 @@ export default function Instances() {
     installRemote,
     publish,
     removeRemote,
+    subscribeRealtime,
   } = useInstanceStore();
   const { activeAccount } = useAccountStore();
   const { progress, setProgress } = useDownloadStore();
@@ -47,8 +48,11 @@ export default function Instances() {
     refresh();
     refreshRemote(activeAccount?.id);
     const unlisten = api.onDownloadProgress(setProgress);
+    // Supabase Realtime: auto-refresh remote instances on INSERT/UPDATE/DELETE
+    const unsubscribeRealtime = subscribeRealtime();
     return () => {
       unlisten.then((fn) => fn());
+      unsubscribeRealtime();
     };
   }, [activeAccount?.id]);
 

@@ -148,7 +148,7 @@ export default function Instances() {
       <div className="mt-6">
         <div className="flex items-center gap-2">
           <CloudDownload size={16} className="text-neutral-400" />
-          <h2 className="text-sm font-semibold text-neutral-300">Instalables desde el servidor</h2>
+          <h2 className="text-sm font-semibold text-neutral-300">Catálogo de Instancias Remotas</h2>
           <span className="text-xs text-neutral-500">({remoteInstances.length})</span>
         </div>
 
@@ -165,7 +165,7 @@ export default function Instances() {
                 key={remote.id}
                 className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col"
               >
-                <div className="h-24 w-full bg-gradient-to-br from-green-600/30 to-emerald-600/20 bg-cover bg-center" />
+                <div className="h-24 w-full bg-gradient-to-br from-accent/30 to-violet-600/20 bg-cover bg-center" />
                 <div className="p-3 flex flex-col gap-2 flex-1">
                   <div>
                     <div className="flex items-center gap-1.5">
@@ -190,7 +190,7 @@ export default function Instances() {
                     <div className="mt-auto">
                       <div className="w-full h-1.5 bg-bg rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-green-500 transition-[width] duration-200"
+                          className="h-full bg-accent-soft transition-[width] duration-200"
                           style={{
                             width:
                               p.totalBytes > 0
@@ -206,7 +206,7 @@ export default function Instances() {
                       <button
                         onClick={() => handleInstallRemote(remote)}
                         disabled={installed}
-                        className="flex-1 h-8 rounded-md bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                        className="flex-1 h-8 rounded-md bg-accent hover:bg-accent/80 disabled:bg-bg-hover disabled:text-neutral-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
                       >
                         <CloudDownload size={12} />
                         {installed ? "Instalada" : "Instalar"}

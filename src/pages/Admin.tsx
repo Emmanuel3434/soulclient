@@ -17,11 +17,15 @@ import {
   UploadCloud,
   X,
   Sliders,
+  Bell,
+  Newspaper,
+  Send,
 } from "lucide-react";
 import { api } from "@/lib/tauri";
 import { useAccountStore } from "@/state/accountStore";
 import { useInstanceStore } from "@/state/instanceStore";
 import { useDiscordStore } from "@/state/discordStore";
+import { supabase, getSupabaseNews, type SupabaseNewsItem } from "@/lib/supabase";
 import type { VaultModEntry } from "@/types/modvault";
 
 export default function Admin() {
@@ -34,12 +38,13 @@ export default function Admin() {
     session?.username?.toLowerCase() === "emanueel" ||
     session?.globalName?.toLowerCase() === "emanueel";
 
+  const [activeTab, setActiveTab] = useState<"mods" | "news">("mods");
+
   const [mods, setMods] = useState<VaultModEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-
 
   // Modal State for Adding/Editing Mod
   const [showModal, setShowModal] = useState(false);
@@ -49,6 +54,15 @@ export default function Admin() {
   const [formVersion, setFormVersion] = useState("1.0.0");
   const [formInstanceId, setFormInstanceId] = useState("*");
   const [formIsMandatory, setFormIsMandatory] = useState(true);
+
+  // News state
+  const [newsList, setNewsList] = useState<SupabaseNewsItem[]>([]);
+  const [loadingNews, setLoadingNews] = useState(false);
+  const [showNewsModal, setShowNewsModal] = useState(false);
+  const [newsTitle, setNewsTitle] = useState("");
+  const [newsBody, setNewsBody] = useState("");
+  const [newsTag, setNewsTag] = useState("Actualización");
+  const [newsEmoji, setNewsEmoji] = useState("📢");
 
   const fetchMods = async () => {
     setLoading(true);
@@ -63,10 +77,63 @@ export default function Admin() {
     }
   };
 
+  const fetchNews = async () => {
+    setLoadingNews(true);
+    try {
+      const data = await getSupabaseNews();
+      setNewsList(data);
+    } catch (err: any) {
+      console.error("Error fetching news", err);
+    } finally {
+      setLoadingNews(false);
+    }
+  };
+
   useEffect(() => {
     fetchMods();
+    fetchNews();
     refreshInstances();
   }, []);
+
+  const handleCreateNews = async () => {
+    if (!newsTitle.trim()) {
+      setError("Ingresa un título para la notificación.");
+      return;
+    }
+    try {
+      const { error: err } = await supabase.from("news").insert({
+        title: newsTitle.trim(),
+        body: newsBody.trim() || null,
+        tag: newsTag.trim() || "Notificación",
+        emoji: newsEmoji.trim() || "📢",
+        published_at: new Date().toISOString(),
+      });
+
+      if (err) throw err;
+
+      setSuccessMsg("Notificación publicada con éxito en el launcher.");
+      setShowNewsModal(false);
+      setNewsTitle("");
+      setNewsBody("");
+      fetchNews();
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err: any) {
+      setError(err?.message || "No se pudo publicar la notificación.");
+    }
+  };
+
+  const handleDeleteNews = async (id: string) => {
+    if (!confirm("¿Eliminar esta notificación?")) return;
+    try {
+      const { error: err } = await supabase.from("news").delete().eq("id", id);
+      if (err) throw err;
+      setSuccessMsg("Notificación eliminada.");
+      fetchNews();
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err: any) {
+      setError(err?.message || "Error al eliminar la notificación.");
+    }
+  };
 
   const handlePickFile = async () => {
     try {
@@ -230,29 +297,65 @@ export default function Admin() {
                 </span>
               </div>
               <p className="text-xs text-neutral-400">
-                Gestión centralizada de mods protegidos y sincronización en tiempo real con Supabase
+                Gestión centralizada de mods protegidos, notificaciones y sincronización en tiempo real con Supabase
               </p>
             </div>
           </div>
         </div>
 
-
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSyncAll}
-            disabled={syncing}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-bg-panel border border-border text-neutral-300 hover:text-white hover:border-neutral-700 transition text-xs font-medium"
-          >
-            <RefreshCw size={14} className={syncing ? "animate-spin text-accent-soft" : ""} />
-            Sincronizar Launcher
-          </button>
-          <button
-            onClick={handleOpenAdd}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-accent-soft text-white hover:opacity-95 transition text-xs font-semibold shadow-lg shadow-accent/20"
-          >
-            <Plus size={16} />
-            Subir Nuevo Mod
-          </button>
+          <div className="flex bg-bg-panel border border-border rounded-lg p-1">
+            <button
+              onClick={() => setActiveTab("mods")}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition ${
+                activeTab === "mods"
+                  ? "bg-accent text-white"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <PackageCheck size={14} />
+              Mods Vault
+            </button>
+            <button
+              onClick={() => setActiveTab("news")}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition ${
+                activeTab === "news"
+                  ? "bg-accent text-white"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              <Bell size={14} />
+              Notificaciones ({newsList.length})
+            </button>
+          </div>
+
+          {activeTab === "mods" ? (
+            <>
+              <button
+                onClick={handleSyncAll}
+                disabled={syncing}
+                className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-bg-panel border border-border text-neutral-300 hover:text-white hover:border-neutral-700 transition text-xs font-medium"
+              >
+                <RefreshCw size={14} className={syncing ? "animate-spin text-accent-soft" : ""} />
+                Sincronizar Launcher
+              </button>
+              <button
+                onClick={handleOpenAdd}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-accent-soft text-white hover:opacity-95 transition text-xs font-semibold shadow-lg shadow-accent/20"
+              >
+                <Plus size={16} />
+                Subir Nuevo Mod
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setShowNewsModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-accent to-accent-soft text-white hover:opacity-95 transition text-xs font-semibold shadow-lg shadow-accent/20"
+            >
+              <Send size={15} />
+              Crear Notificación
+            </button>
+          )}
         </div>
       </div>
 
@@ -330,108 +433,184 @@ export default function Admin() {
         </div>
       </div>
 
-      {/* Mods Table / Grid */}
+      {/* Mods or News Table / Grid */}
       <div className="flex-1 rounded-xl bg-bg-panel border border-border p-4 flex flex-col">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-bold text-neutral-200 uppercase tracking-wider">
-            Catálogo de Mods Administrados
-          </h2>
-          <span className="text-xs text-neutral-500">
-            {mods.length} {mods.length === 1 ? "mod registrado" : "mods registrados"}
-          </span>
-        </div>
+        {activeTab === "mods" ? (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-neutral-200 uppercase tracking-wider">
+                Catálogo de Mods Administrados
+              </h2>
+              <span className="text-xs text-neutral-500">
+                {mods.length} {mods.length === 1 ? "mod registrado" : "mods registrados"}
+              </span>
+            </div>
 
-        {loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <RefreshCw size={24} className="animate-spin text-accent-soft" />
-          </div>
-        ) : mods.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
-            <Shield size={40} className="text-neutral-600 mb-3" />
-            <p className="text-sm text-neutral-400 font-medium">No hay mods subidos en el vault.</p>
-            <p className="text-xs text-neutral-500 mt-1 max-w-sm">
-              Sube tus mods personalizados para distribuirlos de forma segura a todos los jugadores.
-            </p>
-            <button
-              onClick={handleOpenAdd}
-              className="mt-4 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent-soft hover:bg-accent/30 text-xs font-semibold transition"
-            >
-              + Añadir Primer Mod
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {mods.map((mod) => (
-              <motion.div
-                key={mod.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="flex items-center justify-between p-3.5 rounded-lg bg-bg border border-border/80 hover:border-neutral-700 transition"
-              >
-                <div className="flex items-center gap-3.5">
-                  <div className="p-2.5 rounded-lg bg-accent/10 border border-accent/20 text-accent-soft shrink-0">
-                    <Shield size={18} />
-                  </div>
-                  <div>
+            {loading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <RefreshCw size={24} className="animate-spin text-accent-soft" />
+              </div>
+            ) : mods.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
+                <Shield size={40} className="text-neutral-600 mb-3" />
+                <p className="text-sm text-neutral-400 font-medium">No hay mods subidos en el vault.</p>
+                <p className="text-xs text-neutral-500 mt-1 max-w-sm">
+                  Sube tus mods personalizados para distribuirlos de forma segura a todos los jugadores.
+                </p>
+                <button
+                  onClick={handleOpenAdd}
+                  className="mt-4 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent-soft hover:bg-accent/30 text-xs font-semibold transition"
+                >
+                  + Añadir Primer Mod
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {mods.map((mod) => (
+                  <motion.div
+                    key={mod.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center justify-between p-3.5 rounded-lg bg-bg border border-border/80 hover:border-neutral-700 transition"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <div className="p-2.5 rounded-lg bg-accent/10 border border-accent/20 text-accent-soft shrink-0">
+                        <Shield size={18} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{mod.name}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-800 text-neutral-400 border border-neutral-700">
+                            v{mod.version}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                              mod.isMandatory
+                                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                                : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                            }`}
+                          >
+                            {mod.isMandatory ? "Obligatorio" : "Opcional"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1 font-mono">
+                          <span>{mod.originalName}</span>
+                          <span>•</span>
+                          <span>{formatSize(mod.sizeBytes)}</span>
+                          <span>•</span>
+                          <span>Instancia: {mod.instanceId === "*" ? "Global" : mod.instanceId}</span>
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white">{mod.name}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-800 text-neutral-400 border border-neutral-700">
-                        v{mod.version}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                          mod.isMandatory
-                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                            : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                        }`}
+                      <button
+                        onClick={() => handleToggleMandatory(mod)}
+                        title={mod.isMandatory ? "Cambiar a Opcional" : "Cambiar a Obligatorio"}
+                        className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-neutral-300 hover:text-white transition"
                       >
-                        {mod.isMandatory ? "Obligatorio" : "Opcional"}
-                      </span>
+                        {mod.isMandatory ? (
+                          <ToggleRight size={18} className="text-emerald-400" />
+                        ) : (
+                          <ToggleLeft size={18} className="text-neutral-500" />
+                        )}
+                      </button>
+                      <button
+                        onClick={() => handleOpenEdit(mod)}
+                        title="Editar detalles / actualizar archivo"
+                        className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-neutral-300 hover:text-white transition"
+                      >
+                        <Edit3 size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteMod(mod)}
+                        title="Eliminar Mod"
+                        className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-red-400 hover:bg-red-500/20 transition"
+                      >
+                        <Trash2 size={16} />
+                      </button>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-neutral-500 mt-1 font-mono">
-                      <span>{mod.originalName}</span>
-                      <span>•</span>
-                      <span>{formatSize(mod.sizeBytes)}</span>
-                      <span>•</span>
-                      <span>Instancia: {mod.instanceId === "*" ? "Global" : mod.instanceId}</span>
-                    </div>
-                  </div>
-                </div>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold text-neutral-200 uppercase tracking-wider">
+                NotificacionesEnviadas a los Launchers
+              </h2>
+              <span className="text-xs text-neutral-500">
+                {newsList.length} {newsList.length === 1 ? "notificación" : "notificaciones"}
+              </span>
+            </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleToggleMandatory(mod)}
-                    title={mod.isMandatory ? "Cambiar a Opcional" : "Cambiar a Obligatorio"}
-                    className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-neutral-300 hover:text-white transition"
+            {loadingNews ? (
+              <div className="flex-1 flex items-center justify-center">
+                <RefreshCw size={24} className="animate-spin text-accent-soft" />
+              </div>
+            ) : newsList.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
+                <Bell size={40} className="text-neutral-600 mb-3" />
+                <p className="text-sm text-neutral-400 font-medium">No hay notificaciones creadas.</p>
+                <p className="text-xs text-neutral-500 mt-1 max-w-sm">
+                  Crea y envía notificaciones que aparecerán inmediatamente en el launcher de los usuarios.
+                </p>
+                <button
+                  onClick={() => setShowNewsModal(true)}
+                  className="mt-4 px-4 py-2 rounded-lg bg-accent/20 border border-accent/40 text-accent-soft hover:bg-accent/30 text-xs font-semibold transition"
+                >
+                  + Enviar Notificación
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {newsList.map((item) => (
+                  <motion.div
+                    key={item.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex items-center justify-between p-3.5 rounded-lg bg-bg border border-border/80 hover:border-neutral-700 transition"
                   >
-                    {mod.isMandatory ? (
-                      <ToggleRight size={18} className="text-emerald-400" />
-                    ) : (
-                      <ToggleLeft size={18} className="text-neutral-500" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => handleOpenEdit(mod)}
-                    title="Editar detalles / actualizar archivo"
-                    className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-neutral-300 hover:text-white transition"
-                  >
-                    <Edit3 size={16} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteMod(mod)}
-                    title="Eliminar Mod"
-                    className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-red-400 hover:bg-red-500/20 transition"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
+                    <div className="flex items-center gap-3.5">
+                      <div className="p-2.5 rounded-lg bg-accent/10 border border-accent/20 text-accent-soft shrink-0 text-lg">
+                        {item.emoji || "📢"}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-white">{item.title}</span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-accent/15 border border-accent/30 text-accent-soft">
+                            {item.tag}
+                          </span>
+                        </div>
+                        {item.body && (
+                          <p className="text-xs text-neutral-400 mt-1 max-w-xl truncate">
+                            {item.body}
+                          </p>
+                        )}
+                        <p className="text-[10px] text-neutral-500 mt-1 font-mono">
+                          Publicado: {new Date(item.published_at).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleDeleteNews(item.id)}
+                      title="Eliminar Notificación"
+                      className="p-1.5 rounded-lg bg-neutral-800/80 border border-neutral-700/60 text-red-400 hover:bg-red-500/20 transition"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* Modal Dialog for Upload / Edit */}
+      {/* Modal Dialog for Upload / Edit Mod */}
       <AnimatePresence>
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
@@ -553,6 +732,96 @@ export default function Admin() {
                   className="px-4 py-1.5 rounded-lg bg-accent text-white hover:bg-accent/90 font-medium text-xs shadow-md shadow-accent/20"
                 >
                   Guardar Mod
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal Dialog for Creating Notification */}
+      <AnimatePresence>
+        {showNewsModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="w-full max-w-md bg-bg-panel border border-border rounded-xl p-5 shadow-2xl space-y-4"
+            >
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Bell size={18} className="text-accent-soft" />
+                  Crear Notificación para el Launcher
+                </h3>
+                <button
+                  onClick={() => setShowNewsModal(false)}
+                  className="text-neutral-400 hover:text-white transition"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3.5 text-xs">
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="col-span-1">
+                    <label className="block text-neutral-400 font-medium mb-1">Emoji</label>
+                    <input
+                      type="text"
+                      value={newsEmoji}
+                      onChange={(e) => setNewsEmoji(e.target.value)}
+                      className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-center text-white text-sm focus:border-accent-soft focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="col-span-3">
+                    <label className="block text-neutral-400 font-medium mb-1">Etiqueta / Tag</label>
+                    <input
+                      type="text"
+                      placeholder="Actualización, Evento, Mantenimiento..."
+                      value={newsTag}
+                      onChange={(e) => setNewsTag(e.target.value)}
+                      className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-white focus:border-accent-soft focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-neutral-400 font-medium mb-1">Título de la Notificación *</label>
+                  <input
+                    type="text"
+                    placeholder="Ej: ¡Servidor actualizado a Fabric 1.20.1!"
+                    value={newsTitle}
+                    onChange={(e) => setNewsTitle(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-white font-semibold focus:border-accent-soft focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-neutral-400 font-medium mb-1">Contenido / Mensaje</label>
+                  <textarea
+                    rows={4}
+                    placeholder="Escribe los detalles o novedades que verán todos los usuarios en su pantalla de inicio..."
+                    value={newsBody}
+                    onChange={(e) => setNewsBody(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-white focus:border-accent-soft focus:outline-none resize-none leading-relaxed"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 border-t border-border/60 pt-3">
+                <button
+                  onClick={() => setShowNewsModal(false)}
+                  className="px-3.5 py-1.5 rounded-lg border border-border text-neutral-300 hover:text-white text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleCreateNews}
+                  className="px-4 py-1.5 rounded-lg bg-accent text-white hover:bg-accent/90 font-medium text-xs shadow-md shadow-accent/20 flex items-center gap-1.5"
+                >
+                  <Send size={14} />
+                  Publicar Ahora
                 </button>
               </div>
             </motion.div>

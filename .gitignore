@@ -8,3 +8,4 @@ vite_build.txt
 .env
 .env.local
 .env.*.local
+config.local.php

@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Soul Panel</title>
+<style>
+  :root{
+    --bg: #0a0a0a;
+    --surface: #171717;
+    --surface-2: #1f1f1f;
+    --border: #2a2a2a;
+    --input-bg: #141414;
+    --text: #e8e8e8;
+    --muted: #8a8a8a;
+    --accent: #d9822b;
+    --accent-soft: #d9822b22;
+    --danger: #ef4444;
+    --danger-soft: #ef444422;
+    --ok: #4ade80;
+    --radius: 10px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select, textarea{ font-family: inherit; }
+
+  /* ---------- shell ---------- */
+  #app{ max-width: 1160px; margin: 0 auto; padding: 28px 24px 60px; display:none; }
+  #app.visible{ display:block; }
+
+  header.topheader{
+    display:flex; justify-content:space-between; align-items:flex-start;
+    margin-bottom: 22px; gap: 16px; flex-wrap: wrap;
+  }
+  header.topheader h1{ margin:0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+  header.topheader p{ margin: 4px 0 0; color: var(--muted); font-size: 13.5px; }
+
+  .btn{
+    background: #e9e9e9;
+    color: #161616;
+    border: none;
+    border-radius: 7px;
+    padding: 9px 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter .12s ease, transform .06s ease;
+    white-space: nowrap;
+  }
+  .btn:hover{ filter: brightness(0.94); }
+  .btn:active{ transform: translateY(1px); }
+  .btn-ghost{
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover{ background: var(--surface-2); }
+  .btn-danger{ background: var(--danger); color: #fff; }
+  .btn-sm{ padding: 6px 12px; font-size: 12.5px; }
+  .btn[disabled]{ opacity:.45; cursor:default; }
+
+  /* ---------- tabs ---------- */
+  nav.tabs{
+    display:flex; gap: 26px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  nav.tabs button{
+    background:none; border:none; cursor:pointer;
+    color: var(--muted);
+    font-size: 14.5px;
+    font-weight: 500;
+    padding: 0 2px 12px;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  nav.tabs button:hover{ color: var(--text); }
+  nav.tabs button.active{ color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  /* ---------- section header ---------- */
+  .section-head{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-bottom: 16px; gap: 12px; flex-wrap: wrap;
+  }
+  .section-head h2{ margin:0; font-size: 17px; font-weight: 700; color: var(--accent); }
+
+  /* ---------- panel / card ---------- */
+  .panel{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    margin-bottom: 22px;
+  }
+  .panel h3{ margin: 0 0 18px; font-size: 15px; font-weight: 700; color: var(--accent); }
+
+  .form-grid{
+    display:grid; grid-template-columns: 1fr 1fr; gap: 16px 20px;
+  }
+  .form-grid .span2{ grid-column: 1 / -1; }
+  @media (max-width: 620px){ .form-grid{ grid-template-columns: 1fr; } }
+
+  .field label{
+    display:block; font-size: 12.5px; color: var(--muted); margin-bottom: 6px;
+  }
+  .field input[type="text"],
+  .field input[type="number"],
+  .field input[type="url"],
+  .field select,
+  .field textarea{
+    width:100%;
+    background: var(--input-bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-size: 14px;
+    outline:none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus{ border-color: var(--accent); }
+  .field textarea{ resize: vertical; min-height: 70px; }
+  .checkbox-row{ display:flex; align-items:center; gap: 8px; margin: 4px 0 18px; }
+  .checkbox-row input{ width:15px; height:15px; accent-color: var(--accent); }
+  .checkbox-row label{ font-size: 13.5px; color: var(--text); cursor:pointer; }
+
+  /* ---------- instance cards ---------- */
+  .card-grid{
+    display:flex; flex-wrap:wrap; gap: 14px;
+  }
+  .instance-card{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    min-width: 230px;
+    flex: 1 1 230px;
+    max-width: 340px;
+    cursor: pointer;
+    transition: border-color .12s ease, background .12s ease;
+  }
+  .instance-card:hover{ border-color: #454545; background: var(--surface-2); }
+  .instance-card .name-row{ display:flex; align-items:center; gap: 9px; font-weight: 700; font-size: 15px; }
+  .instance-card .name-row .icon{ font-size: 18px; }
+  .instance-card .meta{ margin-top: 5px; font-size: 12.5px; color: var(--muted); }
+  .instance-card .meta .lock{ color: var(--accent); }
+
+  .empty-state{
+    padding: 46px 20px; text-align:center; color: var(--muted); font-size: 13.5px;
+    border: 1px dashed var(--border); border-radius: var(--radius);
+  }
+  .empty-state strong{ display:block; color: var(--text); font-size: 15.5px; margin-bottom: 6px; }
+
+  /* ---------- generic item rows (mods, config, codes, news) ---------- */
+  .row-list{ display:flex; flex-direction:column; gap: 10px; }
+  .row-item{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display:flex; justify-content:space-between; align-items:center; gap: 12px;
+    flex-wrap: wrap;
+  }
+  .row-item .main{ font-size: 13.5px; }
+  .row-item .main strong{ font-weight: 600; }
+  .row-item .sub{ color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .row-item .actions{ display:flex; gap: 8px; flex-shrink:0; }
+  .badge{
+    display:inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .badge.on{ color: var(--ok); border-color: #4ade8055; background:#4ade8014; }
+  .badge.off{ color: var(--muted); }
+
+  select.inline-select{
+    background: var(--input-bg); color: var(--text); border:1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: 13px;
+  }
+
+  /* ---------- modal ---------- */
+  .overlay{
+    position: fixed; inset:0; background:#000000cc;
+    display:none; align-items:flex-start; justify-content:center;
+    padding: 40px 20px; z-index: 30; overflow-y:auto;
+  }
+  .overlay.visible{ display:flex; }
+  .modal{
+    width:100%; max-width: 560px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 24px;
+  }
+  .modal h3{ margin: 0 0 18px; font-size: 17px; font-weight: 700; }
+  .modal-section{ margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+  .modal-section h4{ margin:0 0 12px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing:.04em; }
+  .modal-actions{ display:flex; justify-content:space-between; gap: 10px; margin-top: 22px; }
+  .modal-actions .right{ display:flex; gap: 10px; }
+
+  .whitelist-item{
+    display:flex; justify-content:space-between; align-items:center;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .whitelist-item:last-child{ border-bottom:none; }
+  .add-inline{ display:flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .add-inline input, .add-inline select{ flex:1; min-width: 100px; }
+
+  /* ---------- toast ---------- */
+  #toast{
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text); padding: 11px 18px; border-radius: 8px;
+    font-size: 13.5px; opacity:0; pointer-events:none; transition: opacity .2s ease;
+    z-index: 50;
+  }
+  #toast.visible{ opacity:1; }
+  #toast.error{ border-color: var(--danger); color: #ffb3b0; }
+
+  .helper-text{ font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  /* ---------- login ---------- */
+  #login-screen{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .login-card{ width:100%; max-width: 360px; background: var(--surface); border:1px solid var(--border); border-radius: var(--radius); padding: 30px; }
+  .login-card h1{ margin: 0 0 22px; font-size: 22px; }
+  .login-error{ color: var(--danger); font-size: 13px; margin-top: 12px; min-height: 16px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header class="topheader">
+    <div>
+      <h1>Soul Panel</h1>
+      <p>Gestión de instancias, whitelist, mods y noticias</p>
+    </div>
+    <button class="btn-ghost" id="logout-btn">Cerrar sesión</button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab-btn active" data-tab="instancias">Instancias</button>
+    <button class="tab-btn" data-tab="importar">Importar modpack</button>
+    <button class="tab-btn" data-tab="codigos">Códigos</button>
+    <button class="tab-btn" data-tab="noticias">Noticias</button>
+  </nav>
+
+  <!-- ============ INSTANCIAS ============ -->
+  <section class="tab-panel active" id="tab-instancias">
+    <div class="section-head">
+      <h2 id="instancias-count">Instancias (0)</h2>
+      <button class="btn" id="toggle-new-instance">+ Nueva instancia</button>
+    </div>
+
+    <div class="panel" id="new-instance-panel" style="display:none;">
+      <h3>Nueva instancia</h3>
+      <div class="form-grid">
+        <div class="field">
+          <label>Nombre</label>
+          <input type="text" id="ni-name" placeholder="Servidor de mods">
+        </div>
+        <div class="field">
+          <label>Icono (emoji)</label>
+          <input type="text" id="ni-icon" placeholder="🎮" maxlength="4">
+        </div>
+        <div class="field">
+          <label>Versión de Minecraft</label>
+          <input type="text" id="ni-version" placeholder="1.21.1">
+        </div>
+        <div class="field">
+          <label>Modloader</label>
+          <select id="ni-modloader">
+            <option value="vanilla">Vanilla</option>
+            <option value="fabric" selected>Fabric</option>
+            <option value="forge">Forge</option>
+            <option value="neoforge">NeoForge</option>
+            <option value="quilt">Quilt</option>
+          </select>
+        </div>
+        <div class="field span2">
+          <label>Java requerido</label>
+          <select id="ni-java">
+            <option value="8">Java 8 (MC 1.7 – 1.16)</option>
+            <option value="16">Java 16 (MC 1.17)</option>
+            <option value="17">Java 17 (MC 1.18 – 1.20.4)</option>
+            <option value="21" selected>Java 21 (MC 1.20.5+)</option>
+          </select>
+        </div>
+        <div class="field span2">
+          <label>Descripción (opcional)</label>
+          <textarea id="ni-description"></textarea>
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="ni-whitelist">
+        <label for="ni-whitelist">Requiere whitelist</label>
+      </div>
+      <button class="btn" id="create-instance-btn">Crear instancia</button>
+    </div>
+
+    <div class="card-grid" id="instance-cards"></div>
+  </section>
+
+  <!-- ============ IMPORTAR MODPACK ============ -->
+  <section class="tab-panel" id="tab-importar">
+    <div class="section-head">
+      <h2>Mods y configuración</h2>
+    </div>
+    <div class="panel">
+      <div class="field" style="max-width:340px;">
+        <label>Instancia</label>
+        <select id="mp-instance-select" class="inline-select" style="width:100%;"></select>
+      </div>
+    </div>
+
+    <div id="mp-content" style="display:none;">
+      <div class="panel">
+        <h3>Añadir mod</h3>
+        <div class="form-grid">
+          <div class="field"><label>Nombre del archivo</label><input type="text" id="mod-file-name" placeholder="fabric-api-0.100.0.jar"></div>
+          <div class="field"><label>Enlace de descarga</label><input type="url" id="mod-download-url" placeholder="https://modrinth.com/…"></div>
+          <div class="field"><label>Fuente</label><input type="text" id="mod-source" placeholder="modrinth / curseforge / manual"></div>
+          <div class="field"><label>Tamaño (bytes, opcional)</label><input type="number" id="mod-size" placeholder="1048576"></div>
+        </div>
+        <button class="btn btn-sm" id="add-mod-btn" style="margin-top:14px;">+ Añadir mod</button>
+      </div>
+      <div class="row-list" id="mods-list"></div>
+
+      <div class="panel" style="margin-top:22px;">
+        <h3>Añadir archivo de configuración</h3>
+        <div class="form-grid">
+          <div class="field"><label>Ruta destino</label><input type="text" id="cfg-target-path" placeholder="config/mymod.toml"></div>
+          <div class="field"><label>Enlace de descarga</label><input type="url" id="cfg-download-url" placeholder="https://…"></div>
+        </div>
+        <button class="btn btn-sm" id="add-cfg-btn" style="margin-top:14px;">+ Añadir archivo</button>
+      </div>
+      <div class="row-list" id="configs-list"></div>
+    </div>
+    <div class="empty-state" id="mp-empty"><strong>Elige una instancia</strong>Selecciona una instancia arriba para gestionar sus mods y configuración.</div>
+  </section>
+
+  <!-- ============ CÓDIGOS ============ -->
+  <section class="tab-panel" id="tab-codigos">
+    <div class="section-head">
+      <h2>Códigos de acceso</h2>
+    </div>
+    <div class="panel">
+      <div class="field" style="max-width:340px;">
+        <label>Instancia</label>
+        <select id="cd-instance-select" class="inline-select" style="width:100%;"></select>
+      </div>
+    </div>
+
+    <div id="cd-content" style="display:none;">
+      <div class="panel">
+        <h3>Nuevo código</h3>
+        <div class="form-grid">
+          <div class="field"><label>Código</label><input type="text" id="code-value" placeholder="LEBIU-XXXX"></div>
+          <div class="field"><label>Usos máximos</label><input type="number" id="code-max-uses" placeholder="1"></div>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:14px;">
+          <button class="btn btn-sm" id="add-code-btn">+ Crear código</button>
+          <button class="btn-ghost btn-sm" id="gen-code-btn">Generar aleatorio</button>
+        </div>
+      </div>
+      <div class="row-list" id="codes-list"></div>
+    </div>
+    <div class="empty-state" id="cd-empty"><strong>Elige una instancia</strong>Selecciona una instancia arriba para ver y crear códigos de acceso.</div>
+  </section>
+
+  <!-- ============ NOTICIAS ============ -->
+  <section class="tab-panel" id="tab-noticias">
+    <div class="section-head">
+      <h2 id="noticias-count">Noticias (0)</h2>
+      <button class="btn" id="toggle-new-news">+ Nueva noticia</button>
+    </div>
+
+    <div class="panel" id="new-news-panel" style="display:none;">
+      <h3>Nueva noticia</h3>
+      <div class="form-grid">
+        <div class="field"><label>Título</label><input type="text" id="news-title" placeholder="Nueva actualización disponible"></div>
+        <div class="field"><label>Emoji</label><input type="text" id="news-emoji" placeholder="📢" maxlength="4"></div>
+        <div class="field"><label>Etiqueta</label><input type="text" id="news-tag" placeholder="update / evento / aviso"></div>
+        <div class="field"><label>Imagen (URL, opcional)</label><input type="url" id="news-image" placeholder="https://…"></div>
+        <div class="field span2"><label>Contenido</label><textarea id="news-body"></textarea></div>
+      </div>
+      <button class="btn" id="create-news-btn" style="margin-top:4px;">Publicar noticia</button>
+    </div>
+
+    <div class="row-list" id="news-list"></div>
+  </section>
+</div>
+
+<!-- ============ MODAL: editar instancia ============ -->
+<div class="overlay" id="instance-modal">
+  <div class="modal">
+    <h3>Editar instancia</h3>
+    <div class="form-grid">
+      <div class="field"><label>Nombre</label><input type="text" id="ei-name"></div>
+      <div class="field"><label>Icono (emoji)</label><input type="text" id="ei-icon" maxlength="4"></div>
+      <div class="field"><label>Versión de Minecraft</label><input type="text" id="ei-version"></div>
+      <div class="field">
+        <label>Modloader</label>
+        <select id="ei-modloader">
+          <option value="vanilla">Vanilla</option>
+          <option value="fabric">Fabric</option>
+          <option value="forge">Forge</option>
+          <option value="neoforge">NeoForge</option>
+          <option value="quilt">Quilt</option>
+        </select>
+      </div>
+      <div class="field span2">
+        <label>Java requerido</label>
+        <select id="ei-java">
+          <option value="8">Java 8 (MC 1.7 – 1.16)</option>
+          <option value="16">Java 16 (MC 1.17)</option>
+          <option value="17">Java 17 (MC 1.18 – 1.20.4)</option>
+          <option value="21">Java 21 (MC 1.20.5+)</option>
+        </select>
+      </div>
+      <div class="field span2"><label>Descripción</label><textarea id="ei-description"></textarea></div>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="ei-whitelist">
+      <label for="ei-whitelist">Requiere whitelist</label>
+    </div>
+
+    <div class="modal-section" id="ei-whitelist-section">
+      <h4>Whitelist</h4>
+      <div id="ei-whitelist-list"></div>
+      <div class="add-inline">
+        <select id="ei-wl-provider" class="inline-select">
+          <option value="mojang">Mojang</option>
+          <option value="xbox">Xbox</option>
+          <option value="otro">Otro</option>
+        </select>
+        <input type="text" id="ei-wl-external" placeholder="usuario o UUID">
+        <input type="text" id="ei-wl-display" placeholder="nombre para mostrar">
+        <button class="btn-ghost btn-sm" id="ei-wl-add">Añadir</button>
+      </div>
+    </div>
+
+    <div class="modal-section" id="ei-publish-section">
+      <h4>Publicar ZIP</h4>
+      <p class="helper-text" id="ei-publish-status">Sin archivo publicado todavía.</p>
+      <div class="add-inline">
+        <input type="file" id="ei-zip-file" accept=".zip">
+        <button class="btn btn-sm" id="ei-publish">Subir y publicar</button>
+      </div>
+      <div class="helper-text">El ZIP se sube a Supabase Storage y su SHA-256 se guarda para que el launcher lo verifique al instalarlo.</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-danger btn-sm" id="ei-delete">Eliminar instancia</button>
+      <div class="right">
+        <button class="btn-ghost btn-sm" id="ei-cancel">Cancelar</button>
+        <button class="btn btn-sm" id="ei-save">Guardar cambios</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function(){
+  const el = (id) => document.getElementById(id);
+
+  // ---------------- API helper ----------------
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Error de red');
+    return data;
+  }
+  async function fetchAll(table) {
+    const data = await api(`api.php?action=rows&table=${encodeURIComponent(table)}&limit=200&offset=0`);
+    return data.rows || [];
+  }
+  function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+  }
+  function formatBytes(n) {
+    n = Number(n || 0);
+    if (!n) return '—';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let i = 0;
+    let v = n;
+    while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+    return v.toFixed(v >= 10 || i === 0 ? 0 : 1) + ' ' + units[i];
+  }
+  function shortSha(h) {
+    h = String(h || '');
+    return h ? h.slice(0, 7) + '…' + h.slice(-4) : '';
+  }
+  function toast(msg, isError) {
+    const t = el('toast');
+    t.textContent = msg;
+    t.classList.toggle('error', !!isError);
+    t.classList.add('visible');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove('visible'), 3200);
+  }
+
+  const state = { instances: [], mpInstanceId: null, cdInstanceId: null, editingInstance: null };
+
+  // ---------------- Tabs ----------------
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach((p) => p.classList.remove('active'));
+      btn.classList.add('active');
+      el('tab-' + btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  el('logout-btn').addEventListener('click', () => { location.href = 'logout.php'; });
+
+  // ---------------- Instancias ----------------
+  el('toggle-new-instance').addEventListener('click', () => {
+    const p = el('new-instance-panel');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  });
+
+  async function loadInstances() {
+    try {
+      state.instances = await fetchAll('instances');
+    } catch (err) {
+      toast('No se pudieron cargar las instancias: ' + err.message, true);
+      state.instances = [];
+    }
+    renderInstanceCards();
+    fillInstanceSelects();
+  }
+
+  function renderInstanceCards() {
+    el('instancias-count').textContent = `Instancias (${state.instances.length})`;
+    const grid = el('instance-cards');
+    if (state.instances.length === 0) {
+      grid.innerHTML = `<div class="empty-state" style="width:100%;"><strong>Sin instancias todavía</strong>Crea la primera con «+ Nueva instancia».</div>`;
+      return;
+    }
+    grid.innerHTML = state.instances.map((i) => `
+      <div class="instance-card" data-id="${i.id}">
+        <div class="name-row"><span class="icon">${escapeHtml(i.icon || '🎮')}</span> ${escapeHtml(i.name)}</div>
+        <div class="meta">${escapeHtml(i.modloader || '')} · ${escapeHtml(i.version || '')}${i.java_version ? ' · Java ' + escapeHtml(i.java_version) : ''}${i.whitelist_enabled ? ' · <span class="lock">🔒</span> whitelist' : ''}</div>
+      </div>
+    `).join('');
+    grid.querySelectorAll('.instance-card').forEach((card) => {
+      card.addEventListener('click', () => openInstanceModal(card.dataset.id));
+    });
+  }
+
+  function fillInstanceSelects() {
+    const opts = state.instances.length
+      ? state.instances.map((i) => `<option value="${i.id}">${escapeHtml(i.icon || '🎮')} ${escapeHtml(i.name)}</option>`).join('')
+      : `<option value="">— no hay instancias —</option>`;
+    el('mp-instance-select').innerHTML = opts;
+    el('cd-instance-select').innerHTML = opts;
+    if (state.instances.length) {
+      state.mpInstanceId = state.mpInstanceId || state.instances[0].id;
+      state.cdInstanceId = state.cdInstanceId || state.instances[0].id;
+      el('mp-instance-select').value = state.mpInstanceId;
+      el('cd-instance-select').value = state.cdInstanceId;
+    }
+  }
+
+  el('create-instance-btn').addEventListener('click', async () => {
+    const name = el('ni-name').value.trim();
+    const version = el('ni-version').value.trim();
+    if (!name || !version) { toast('Nombre y versión son obligatorios', true); return; }
+    const payload = {
+      name,
+      version,
+      modloader: el('ni-modloader').value,
+      java_version: el('ni-java').value,
+      icon: el('ni-icon').value.trim() || '🎮',
+      description: el('ni-description').value.trim(),
+      whitelist_enabled: el('ni-whitelist').checked,
+    };
+    try {
+      await api('api.php?action=insert&table=instances', { method: 'POST', body: JSON.stringify(payload) });
+      toast('Instancia creada');
+      el('new-instance-panel').style.display = 'none';
+      ['ni-name','ni-version','ni-description'].forEach((id) => el(id).value = '');
+      el('ni-icon').value = '';
+      el('ni-whitelist').checked = false;
+      await loadInstances();
+    } catch (err) {
+      toast('Error al crear: ' + err.message, true);
+    }
+  });
+
+  // ---------------- Modal: editar instancia + whitelist ----------------
+  async function openInstanceModal(id) {
+    const inst = state.instances.find((i) => String(i.id) === String(id));
+    if (!inst) return;
+    state.editingInstance = inst;
+    el('ei-name').value = inst.name || '';
+    el('ei-icon').value = inst.icon || '';
+    el('ei-version').value = inst.version || '';
+    el('ei-modloader').value = inst.modloader || 'fabric';
+    el('ei-java').value = inst.java_version || '21';
+    el('ei-description').value = inst.description || '';
+    el('ei-whitelist').checked = !!inst.whitelist_enabled;
+    el('ei-publish-status').textContent = inst.sha256
+      ? `Publicado · ${formatBytes(inst.size_bytes)} · sha256 ${shortSha(inst.sha256)}`
+      : 'Sin archivo publicado todavía.';
+    el('ei-whitelist-list').innerHTML = '<p class="helper-text">Cargando…</p>';
+    el('instance-modal').classList.add('visible');
+    try {
+      const all = await fetchAll('whitelist');
+      const mine = all.filter((w) => String(w.instance_id) === String(inst.id));
+      renderWhitelist(mine);
+    } catch (err) {
+      el('ei-whitelist-list').innerHTML = `<p class="helper-text">No se pudo cargar la whitelist.</p>`;
+    }
+  }
+
+  function renderWhitelist(rows) {
+    const wrap = el('ei-whitelist-list');
+    if (rows.length === 0) {
+      wrap.innerHTML = `<p class="helper-text">Sin jugadores en la whitelist.</p>`;
+      return;
+    }
+    wrap.innerHTML = rows.map((w) => `
+      <div class="whitelist-item" data-id="${w.id}">
+        <span>${escapeHtml(w.display_name || w.external_id)} <span class="badge">${escapeHtml(w.provider || '')}</span></span>
+        <button class="btn-ghost btn-sm wl-remove" data-id="${w.id}">Quitar</button>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.wl-remove').forEach((b) => {
+      b.addEventListener('click', async () => {
+        try {
+          await api(`api.php?action=delete&table=whitelist&id=${encodeURIComponent(b.dataset.id)}`, { method: 'POST' });
+          openInstanceModal(state.editingInstance.id);
+        } catch (err) { toast('Error al quitar: ' + err.message, true); }
+      });
+    });
+  }
+
+  el('ei-wl-add').addEventListener('click', async () => {
+    const external_id = el('ei-wl-external').value.trim();
+    if (!external_id) { toast('Indica usuario o UUID', true); return; }
+    try {
+      await api('api.php?action=insert&table=whitelist', {
+        method: 'POST',
+        body: JSON.stringify({
+          instance_id: state.editingInstance.id,
+          provider: el('ei-wl-provider').value,
+          external_id,
+          display_name: el('ei-wl-display').value.trim() || external_id,
+        }),
+      });
+      el('ei-wl-external').value = '';
+      el('ei-wl-display').value = '';
+      openInstanceModal(state.editingInstance.id);
+    } catch (err) { toast('Error al añadir: ' + err.message, true); }
+  });
+
+  el('ei-cancel').addEventListener('click', () => el('instance-modal').classList.remove('visible'));
+
+  // ---------------- Publicar ZIP ----------------
+  el('ei-publish').addEventListener('click', async () => {
+    const file = el('ei-zip-file').files[0];
+    if (!file) { toast('Selecciona un archivo .zip', true); return; }
+    if (!/\.zip$/i.test(file.name)) { toast('El archivo debe ser .zip', true); return; }
+    const btn = el('ei-publish');
+    const status = el('ei-publish-status');
+    btn.disabled = true;
+    status.textContent = 'Calculando SHA-256…';
+    try {
+      const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+      const sha256 = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      status.textContent = `Subiendo ${file.name} (${formatBytes(file.size)})…`;
+      const { signedUrl } = await api(`api.php?action=sign_upload&id=${encodeURIComponent(state.editingInstance.id)}`);
+      const res = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/zip', 'x-upsert': 'true' },
+        body: file,
+      });
+      if (!res.ok) throw new Error('Supabase Storage respondió ' + res.status);
+      await api(`api.php?action=finalize_publish&id=${encodeURIComponent(state.editingInstance.id)}`, {
+        method: 'POST',
+        body: JSON.stringify({ sha256, size_bytes: file.size }),
+      });
+      status.textContent = `Publicado · ${formatBytes(file.size)} · sha256 ${shortSha(sha256)}`;
+      el('ei-zip-file').value = '';
+      toast('Instancia publicada');
+      await loadInstances();
+    } catch (err) {
+      status.textContent = 'Error: ' + err.message;
+      toast('Error al publicar: ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  el('ei-save').addEventListener('click', async () => {
+    const payload = {
+      name: el('ei-name').value.trim(),
+      icon: el('ei-icon').value.trim() || '🎮',
+      version: el('ei-version').value.trim(),
+      modloader: el('ei-modloader').value,
+      java_version: el('ei-java').value,
+      description: el('ei-description').value.trim(),
+      whitelist_enabled: el('ei-whitelist').checked,
+    };
+    try {
+      await api(`api.php?action=update&table=instances&id=${encodeURIComponent(state.editingInstance.id)}`, {
+        method: 'POST', body: JSON.stringify(payload),
+      });
+      toast('Cambios guardados');
+      el('instance-modal').classList.remove('visible');
+      await loadInstances();
+    } catch (err) { toast('Error al guardar: ' + err.message, true); }
+  });
+
+  el('ei-delete').addEventListener('click', async () => {
+    if (!confirm(`¿Eliminar la instancia "${state.editingInstance.name}"? Esta acción no se puede deshacer.`)) return;
+    try {
+      await api(`api.php?action=delete&table=instances&id=${encodeURIComponent(state.editingInstance.id)}`, { method: 'POST' });
+      toast('Instancia eliminada');
+      el('instance-modal').classList.remove('visible');
+      await loadInstances();
+    } catch (err) { toast('Error al eliminar: ' + err.message, true); }
+  });
+
+  // ---------------- Importar modpack (mods + config) ----------------
+  el('mp-instance-select').addEventListener('change', (e) => {
+    state.mpInstanceId = e.target.value;
+    loadModpackData();
+  });
+
+  async function loadModpackData() {
+    const has = !!state.mpInstanceId;
+    el('mp-content').style.display = has ? 'block' : 'none';
+    el('mp-empty').style.display = has ? 'none' : 'block';
+    if (!has) return;
+    try {
+      const [mods, configs] = await Promise.all([fetchAll('mods'), fetchAll('config_files')]);
+      renderMods(mods.filter((m) => String(m.instance_id) === String(state.mpInstanceId)));
+      renderConfigs(configs.filter((c) => String(c.instance_id) === String(state.mpInstanceId)));
+    } catch (err) {
+      toast('No se pudo cargar mods/configuración: ' + err.message, true);
+    }
+  }
+
+  function renderMods(rows) {
+    const wrap = el('mods-list');
+    if (rows.length === 0) { wrap.innerHTML = `<p class="helper-text">Sin mods añadidos todavía.</p>`; return; }
+    wrap.innerHTML = rows.map((m) => `
+      <div class="row-item" data-id="${m.id}">
+        <div class="main"><strong>${escapeHtml(m.file_name || m.download_url || 'mod')}</strong>
+          <div class="sub">${escapeHtml(m.source || '')}${m.size_bytes ? ' · ' + Math.round(m.size_bytes/1024) + ' KB' : ''}</div>
+        </div>
+        <div class="actions"><button class="btn-ghost btn-sm mod-del" data-id="${m.id}">Eliminar</button></div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.mod-del').forEach((b) => b.addEventListener('click', () => deleteRow('mods', b.dataset.id, loadModpackData)));
+  }
+
+  function renderConfigs(rows) {
+    const wrap = el('configs-list');
+    if (rows.length === 0) { wrap.innerHTML = `<p class="helper-text">Sin archivos de configuración todavía.</p>`; return; }
+    wrap.innerHTML = rows.map((c) => `
+      <div class="row-item" data-id="${c.id}">
+        <div class="main"><strong>${escapeHtml(c.target_path || '')}</strong>
+          <div class="sub">${escapeHtml(c.download_url || '')}</div>
+        </div>
+        <div class="actions"><button class="btn-ghost btn-sm cfg-del" data-id="${c.id}">Eliminar</button></div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.cfg-del').forEach((b) => b.addEventListener('click', () => deleteRow('config_files', b.dataset.id, loadModpackData)));
+  }
+
+  el('add-mod-btn').addEventListener('click', async () => {
+    const file_name = el('mod-file-name').value.trim();
+    if (!file_name) { toast('Indica el nombre del archivo', true); return; }
+    try {
+      await api('api.php?action=insert&table=mods', {
+        method: 'POST',
+        body: JSON.stringify({
+          instance_id: state.mpInstanceId,
+          file_name,
+          download_url: el('mod-download-url').value.trim(),
+          source: el('mod-source').value.trim(),
+          size_bytes: el('mod-size').value.trim(),
+        }),
+      });
+      ['mod-file-name','mod-download-url','mod-source','mod-size'].forEach((id) => el(id).value = '');
+      toast('Mod añadido');
+      loadModpackData();
+    } catch (err) { toast('Error al añadir mod: ' + err.message, true); }
+  });
+
+  el('add-cfg-btn').addEventListener('click', async () => {
+    const target_path = el('cfg-target-path').value.trim();
+    if (!target_path) { toast('Indica la ruta destino', true); return; }
+    try {
+      await api('api.php?action=insert&table=config_files', {
+        method: 'POST',
+        body: JSON.stringify({
+          instance_id: state.mpInstanceId,
+          target_path,
+          download_url: el('cfg-download-url').value.trim(),
+        }),
+      });
+      ['cfg-target-path','cfg-download-url'].forEach((id) => el(id).value = '');
+      toast('Archivo añadido');
+      loadModpackData();
+    } catch (err) { toast('Error al añadir archivo: ' + err.message, true); }
+  });
+
+  // ---------------- Códigos ----------------
+  el('cd-instance-select').addEventListener('change', (e) => {
+    state.cdInstanceId = e.target.value;
+    loadCodes();
+  });
+
+  function randomCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let out = '';
+    for (let i = 0; i < 8; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out.slice(0,4) + '-' + out.slice(4);
+  }
+  el('gen-code-btn').addEventListener('click', () => { el('code-value').value = randomCode(); });
+
+  async function loadCodes() {
+    const has = !!state.cdInstanceId;
+    el('cd-content').style.display = has ? 'block' : 'none';
+    el('cd-empty').style.display = has ? 'none' : 'block';
+    if (!has) return;
+    try {
+      const codes = await fetchAll('access_codes');
+      renderCodes(codes.filter((c) => String(c.instance_id) === String(state.cdInstanceId)));
+    } catch (err) {
+      toast('No se pudieron cargar los códigos: ' + err.message, true);
+    }
+  }
+
+  function renderCodes(rows) {
+    const wrap = el('codes-list');
+    if (rows.length === 0) { wrap.innerHTML = `<p class="helper-text">Sin códigos todavía.</p>`; return; }
+    wrap.innerHTML = rows.map((c) => `
+      <div class="row-item" data-id="${c.id}">
+        <div class="main"><strong>${escapeHtml(c.code)}</strong>
+          <div class="sub">${c.use_count ?? 0} / ${c.max_uses ?? '∞'} usos</div>
+        </div>
+        <div class="actions">
+          <span class="badge ${c.active === false ? 'off' : 'on'}">${c.active === false ? 'inactivo' : 'activo'}</span>
+          <button class="btn-ghost btn-sm code-del" data-id="${c.id}">Eliminar</button>
+        </div>
+      </div>
+    `).join('');
+    wrap.querySelectorAll('.code-del').forEach((b) => b.addEventListener('click', () => deleteRow('access_codes', b.dataset.id, loadCodes)));
+  }
+
+  el('add-code-btn').addEventListener('click', async () => {
+    const code = el('code-value').value.trim() || randomCode();
+    try {
+      await api('api.php?action=insert&table=access_codes', {
+        method: 'POST',
+        body: JSON.stringify({
+          instance_id: state.cdInstanceId,
+          code,
+          max_uses: el('code-max-uses').value.trim(),
+          active: true,
+        }),
+      });
+      el('code-value').value = '';
+      el('code-max-uses').value = '';
+      toast('Código creado');
+      loadCodes();
+    } catch (err) { toast('Error al crear código: ' + err.message, true); }
+  });
+
+  // ---------------- Noticias ----------------
+  el('toggle-new-news').addEventListener('click', () => {
+    const p = el('new-news-panel');
+    p.style.display = p.style.display === 'none' ? 'block' : 'none';
+  });
+
+  async function loadNews() {
+    try {
+      const rows = await fetchAll('news');
+      el('noticias-count').textContent = `Noticias (${rows.length})`;
+      const wrap = el('news-list');
+      if (rows.length === 0) { wrap.innerHTML = `<div class="empty-state"><strong>Sin noticias todavía</strong>Publica la primera con «+ Nueva noticia».</div>`; return; }
+      wrap.innerHTML = rows.map((n) => `
+        <div class="row-item" data-id="${n.id}">
+          <div class="main"><strong>${escapeHtml(n.emoji || '📰')} ${escapeHtml(n.title)}</strong>
+            <div class="sub">${escapeHtml(n.tag || '')}${n.tag ? ' · ' : ''}${escapeHtml((n.body || '').slice(0, 90))}${(n.body || '').length > 90 ? '…' : ''}</div>
+          </div>
+          <div class="actions"><button class="btn-ghost btn-sm news-del" data-id="${n.id}">Eliminar</button></div>
+        </div>
+      `).join('');
+      wrap.querySelectorAll('.news-del').forEach((b) => b.addEventListener('click', () => deleteRow('news', b.dataset.id, loadNews)));
+    } catch (err) {
+      toast('No se pudieron cargar las noticias: ' + err.message, true);
+    }
+  }
+
+  el('create-news-btn').addEventListener('click', async () => {
+    const title = el('news-title').value.trim();
+    if (!title) { toast('El título es obligatorio', true); return; }
+    try {
+      await api('api.php?action=insert&table=news', {
+        method: 'POST',
+        body: JSON.stringify({
+          title,
+          emoji: el('news-emoji').value.trim() || '📰',
+          tag: el('news-tag').value.trim(),
+          image_path: el('news-image').value.trim(),
+          body: el('news-body').value.trim(),
+        }),
+      });
+      ['news-title','news-emoji','news-tag','news-image','news-body'].forEach((id) => el(id).value = '');
+      el('new-news-panel').style.display = 'none';
+      toast('Noticia publicada');
+      loadNews();
+    } catch (err) { toast('Error al publicar: ' + err.message, true); }
+  });
+
+  // ---------------- Shared delete ----------------
+  async function deleteRow(table, id, refresh) {
+    if (!confirm('¿Eliminar este elemento? Esta acción no se puede deshacer.')) return;
+    try {
+      await api(`api.php?action=delete&table=${encodeURIComponent(table)}&id=${encodeURIComponent(id)}`, { method: 'POST' });
+      toast('Eliminado');
+      refresh();
+    } catch (err) { toast('Error al eliminar: ' + err.message, true); }
+  }
+
+  // ---------------- Boot ----------------
+  async function boot() {
+    el('app').classList.add('visible');
+    await loadInstances();
+    await loadModpackData();
+    await loadCodes();
+    await loadNews();
+  }
+  boot();
+})();
+</script>
+</body>
+</html>

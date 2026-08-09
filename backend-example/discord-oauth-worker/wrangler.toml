@@ -1,6 +1,6 @@
-name = "soulclient-discord-oauth"
+name = "soulclient"
 main = "src/index.ts"
-compatibility_date = "2024-11-01"
+compatibility_date = "2025-01-01"
 
 # Public (non-secret) env vars
 [vars]
@@ -8,6 +8,13 @@ DISCORD_CLIENT_ID = "1492641149494755370"
 SUPABASE_URL = "https://tryqwbidrcmdhkyllxti.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_f-pNX3Wp-nBVXV2T7oJbHA_BGBCIdC7"
 
+# R2 bucket that stores the published instance ZIPs + metadata.
+# Create it once with: wrangler r2 bucket create soulclient-instances
+[[r2_buckets]]
+binding = "INSTANCES"
+bucket_name = "soulclient-instances"
+
 # Secrets (set via CLI – NEVER commit these):
 #   wrangler secret put DISCORD_CLIENT_SECRET
 #   wrangler secret put SUPABASE_SECRET_KEY
+#   wrangler secret put PUBLISH_TOKEN

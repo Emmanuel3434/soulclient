@@ -8,7 +8,7 @@
     "secret:set": "wrangler secret put DISCORD_CLIENT_SECRET"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241106.0",
+    "@cloudflare/workers-types": "^5.20260809.1",
     "wrangler": "^3.90.0"
   }
 }

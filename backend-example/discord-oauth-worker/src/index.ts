@@ -3,23 +3,21 @@
 // Includes:
 //   - Discord OAuth exchange (/exchange, /refresh)
 //   - Supabase code redemption (/redeem)
-//   - Remote instance catalog backed by R2 + Supabase:
+//   - Remote instance catalog backed by Supabase Storage + the `instances` table:
 //       GET    /instances                        -> list catalog
 //       GET    /api.php?action=rows&table=instances -> same list ({rows:[...]})
-//       POST   /instances/upload/init            -> start multipart upload
-//       POST   /instances/upload/part            -> { url } to upload one part
-//       PUT    /instances/:id/upload/:uploadId/part/:n -> upload one part (etag)
-//       POST   /instances/upload/complete        -> finish upload, write sha256
-//       GET    /instances/:id/download           -> serve the ZIP (verifiable by SHA-256)
+//       POST   /instances/upload/init            -> { url } signed upload URL
+//       PUT    <signed upload URL>               -> the launcher streams the ZIP
+//       POST   /instances/upload/complete        -> store metadata + sha256
+//       GET    /instances/:id/download           -> 302 to the ZIP (verifiable by SHA-256)
 //       DELETE /instances/:id                    -> remove instance
 //
-// Object layout in R2 (bucket bound as `INSTANCES`):
-//   instances/{id}.zip  -> the portable instance ZIP
-//   instances/{id}.json -> catalog metadata (sizeBytes, sha256, downloads, ...)
+// Storage layout in the public Supabase bucket `instances`:
+//   {id}.zip  -> the portable instance ZIP (uploaded through a signed URL)
 //
-// The ZIP's SHA-256 is computed on the server during publish and stored in the
-// metadata + the Supabase `instances` row. The launcher computes the hash of
-// EXACTLY the ZIP it downloads and compares — mismatch => the file is rejected.
+// The ZIP's SHA-256 is computed by the launcher during publish and stored in
+// the Supabase `instances` row. The launcher computes the hash of EXACTLY the
+// ZIP it downloads and compares — mismatch => the file is rejected.
 //
 // Secrets (set once via Wrangler CLI, never committed):
 //   wrangler secret put DISCORD_CLIENT_SECRET
@@ -27,18 +25,18 @@
 //   wrangler secret put PUBLISH_TOKEN
 //
 // Public vars live in wrangler.toml [vars]:
-//   DISCORD_CLIENT_ID, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY
+//   DISCORD_CLIENT_ID, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, SUPABASE_BUCKET
 //
 // Deploy:
 //   cd backend-example/discord-oauth-worker
 //   npm install
-//   npm run secret:set      (DISCORD_CLIENT_SECRET)
+//   wrangler secret put DISCORD_CLIENT_SECRET
 //   wrangler secret put SUPABASE_SECRET_KEY
 //   wrangler secret put PUBLISH_TOKEN
 //   npm run deploy
 //
-// Make sure the R2 bucket `soulclient-instances` exists:
-//   wrangler r2 bucket create soulclient-instances
+// Make sure the Supabase bucket `instances` exists and is public (create it
+// from the Dashboard, or with the service-role key via the Storage API).
 // ============================================================================
 
 /// <reference types="@cloudflare/workers-types" />
@@ -51,10 +49,9 @@ export interface Env {
   SUPABASE_URL: string;
   SUPABASE_PUBLISHABLE_KEY: string;
   SUPABASE_SECRET_KEY: string; // set via: wrangler secret put SUPABASE_SECRET_KEY
+  SUPABASE_BUCKET: string; // public bucket holding the instance ZIPs
   // Publish/delete token, checked against the launcher's Bearer token
   PUBLISH_TOKEN: string; // set via: wrangler secret put PUBLISH_TOKEN
-  // R2 bucket holding the instance ZIPs + metadata
-  INSTANCES: R2Bucket;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -208,51 +205,99 @@ async function supabaseDelete(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// R2 catalog helpers
+// Supabase Storage helpers
 // ────────────────────────────────────────────────────────────────────────────
 
-const ZIP_PREFIX = "instances/";
-
-function zipKey(id: string): string {
-  return `${ZIP_PREFIX}${id}.zip`;
-}
-
-function metaKey(id: string): string {
-  return `${ZIP_PREFIX}${id}.json`;
-}
-
-async function readMeta(bucket: R2Bucket, id: string): Promise<InstanceMeta | null> {
-  const obj = await bucket.get(metaKey(id));
-  if (!obj) return null;
-  try {
-    return (await obj.json()) as InstanceMeta;
-  } catch {
+/** Creates a signed upload URL for `{id}.zip` (valid 2h). The launcher PUTs the
+ *  file body directly to it (with `x-upsert: true` so re-publishing works). */
+async function createSignedUploadUrl(env: Env, id: string): Promise<string | null> {
+  const url = `${env.SUPABASE_URL}/storage/v1/object/upload/sign/${env.SUPABASE_BUCKET}/${encodeURIComponent(id)}.zip`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: supabaseHeaders(env),
+    body: JSON.stringify({ expiresIn: 7200 }),
+  });
+  if (!resp.ok) {
+    console.error("createSignedUploadUrl failed", resp.status, await resp.text());
     return null;
+  }
+  const data = (await resp.json()) as {
+    signedUrl?: string;
+    signedURL?: string;
+    url?: string;
+    error?: string;
+  };
+  return data.signedUrl ?? data.signedURL ?? data.url ?? null;
+}
+
+async function objectExists(env: Env, id: string): Promise<boolean> {
+  const url = `${env.SUPABASE_URL}/storage/v1/object/${env.SUPABASE_BUCKET}/${encodeURIComponent(id)}.zip`;
+  const headers: Record<string, string> = {
+    apikey: env.SUPABASE_SECRET_KEY,
+    Authorization: `Bearer ${env.SUPABASE_SECRET_KEY}`,
+  };
+  const resp = await fetch(url, { method: "HEAD", headers });
+  return resp.ok;
+}
+
+async function deleteObject(env: Env, id: string): Promise<void> {
+  const url = `${env.SUPABASE_URL}/storage/v1/object/${env.SUPABASE_BUCKET}/${encodeURIComponent(id)}.zip`;
+  const resp = await fetch(url, { method: "DELETE", headers: supabaseHeaders(env) });
+  if (!resp.ok) console.error("deleteObject failed", resp.status, await resp.text());
+}
+
+/** Best-effort downloads counter: read the current value and PATCH +1. */
+async function bumpDownloads(env: Env, id: string): Promise<void> {
+  try {
+    const { data, error } = await supabaseSelect(
+      env,
+      "instances",
+      `select=downloads&id=eq.${encodeURIComponent(id)}&limit=1`
+    );
+    if (error || data.length === 0) return;
+    const current = Number((data[0] as Record<string, unknown>)?.downloads ?? 0);
+    const resp = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/instances?id=eq.${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        headers: supabaseHeaders(env),
+        body: JSON.stringify({ downloads: current + 1 }),
+      }
+    );
+    if (!resp.ok) console.error("bumpDownloads failed", resp.status, await resp.text());
+  } catch (err) {
+    console.error("bumpDownloads error", err);
   }
 }
 
-async function writeMeta(bucket: R2Bucket, meta: InstanceMeta): Promise<void> {
-  await bucket.put(metaKey(meta.id), JSON.stringify(meta), {
-    httpMetadata: { contentType: "application/json" },
-  });
+function tsToMs(v: unknown, fallback: number): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") {
+    const n = Date.parse(v);
+    return Number.isNaN(n) ? fallback : n;
+  }
+  return fallback;
 }
 
-/** Maps a Supabase `instances` row + R2 metadata into the launcher's RemoteInstance shape. */
-function toRemote(row: Record<string, unknown>, meta: InstanceMeta | null): InstanceMeta {
+/** Maps a Supabase `instances` row into the launcher's RemoteInstance shape. */
+function toRemote(row: Record<string, unknown>): InstanceMeta {
+  const now = Date.now();
   return {
-    id: String(row.id ?? meta?.id ?? ""),
-    name: String(row.name ?? meta?.name ?? ""),
-    version: String(row.version ?? meta?.version ?? ""),
-    loader: String(row.modloader ?? meta?.loader ?? "vanilla"),
-    loaderVersion: (row.modloader_version ?? meta?.loaderVersion) as string | undefined,
-    description: (row.description ?? meta?.description ?? null) as string | undefined,
-    sizeBytes: meta?.sizeBytes ?? 0,
-    sha256: meta?.sha256 ?? String(row.sha256 ?? ""),
-    downloads: meta?.downloads ?? 0,
-    publishedAt: meta?.publishedAt ?? (Date.parse(String(row.created_at ?? "")) || 0),
-    updatedAt: meta?.updatedAt ?? (Date.parse(String(row.created_at ?? "")) || 0),
-    whitelistEnabled: meta?.whitelistEnabled ?? Boolean(row.whitelist_enabled ?? false),
-    allowedDiscordIds: meta?.allowedDiscordIds ?? [],
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    version: String(row.version ?? ""),
+    loader: String(row.modloader ?? "vanilla"),
+    loaderVersion: (row.modloader_version ?? null) as string | undefined,
+    description: (row.description ?? null) as string | undefined,
+    sizeBytes: Number(row.size_bytes ?? 0),
+    sha256: String(row.sha256 ?? ""),
+    downloads: Number(row.downloads ?? 0),
+    publishedAt: tsToMs(row.published_at, tsToMs(row.created_at, now)),
+    updatedAt: tsToMs(row.updated_at, tsToMs(row.created_at, now)),
+    whitelistEnabled: Boolean(row.whitelist_enabled ?? false),
+    allowedDiscordIds: Array.isArray(row.allowed_discord_ids)
+      ? (row.allowed_discord_ids as unknown[]).map(String)
+      : [],
   };
 }
 
@@ -263,15 +308,7 @@ async function listInstances(env: Env): Promise<InstanceMeta[]> {
     "select=*&order=created_at.desc"
   );
   if (error) return [];
-  const rows = data as Record<string, unknown>[];
-  const out: InstanceMeta[] = [];
-  for (const row of rows) {
-    const id = String(row.id ?? "");
-    if (!id) continue;
-    const meta = await readMeta(env.INSTANCES, id);
-    out.push(toRemote(row, meta));
-  }
-  return out;
+  return (data as Record<string, unknown>[]).map(toRemote);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -302,63 +339,15 @@ async function discordTokenRequest(env: Env, params: Record<string, string>) {
 async function handleInitUpload(env: Env, body: { id?: string }): Promise<Response> {
   const id = body.id;
   if (!id) return json({ error: "Missing id" }, 400);
-  try {
-    const upload = await env.INSTANCES.createMultipartUpload(zipKey(id));
-    return json({ id, uploadId: upload.uploadId });
-  } catch (err) {
-    console.error("createMultipartUpload failed", err);
-    return json({ error: "No se pudo iniciar la subida" }, 500);
-  }
-}
-
-async function handlePartUrl(
-  request: Request,
-  env: Env,
-  body: { id?: string; uploadId?: string; partNumber?: number }
-): Promise<Response> {
-  const { id, uploadId, partNumber } = body;
-  if (!id || !uploadId || !partNumber) return json({ error: "Missing id/uploadId/partNumber" }, 400);
-  const origin = new URL(request.url).origin;
-  const url = `${origin}/instances/${id}/upload/${uploadId}/part/${partNumber}`;
-  return json({ url });
-}
-
-async function handlePartPut(
-  request: Request,
-  env: Env,
-  id: string,
-  uploadId: string,
-  partNumberStr: string
-): Promise<Response> {
-  const partNumber = Number(partNumberStr);
-  if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10000) {
-    return json({ error: "Invalid partNumber" }, 400);
-  }
-  if (!request.body) return json({ error: "Missing body" }, 400);
-  try {
-    const part = await env.INSTANCES
-      .resumeMultipartUpload(zipKey(id), uploadId)
-      .uploadPart(partNumber, request.body);
-    return new Response(JSON.stringify({ partNumber, etag: part.etag }), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        Etag: part.etag,
-        ...corsHeaders,
-      },
-    });
-  } catch (err) {
-    console.error("uploadMultipartPart failed", err);
-    return json({ error: "No se pudo subir la parte" }, 500);
-  }
+  const url = await createSignedUploadUrl(env, id);
+  if (!url) return json({ error: "No se pudo iniciar la subida" }, 500);
+  return json({ id, url });
 }
 
 async function handleCompleteUpload(
   env: Env,
   body: {
     id?: string;
-    uploadId?: string;
-    parts?: { partNumber?: number; etag?: string }[];
     size?: number;
     name?: string;
     version?: string;
@@ -370,88 +359,62 @@ async function handleCompleteUpload(
     allowedDiscordIds?: string[];
   }
 ): Promise<Response> {
-  const { id, uploadId, parts, size } = body;
-  if (!id || !uploadId || !Array.isArray(parts) || parts.length === 0) {
-    return json({ error: "Missing id/uploadId/parts" }, 400);
-  }
+  const { id } = body;
+  if (!id) return json({ error: "Missing id" }, 400);
   try {
-    const uploadedParts = parts.map((p) => ({
-      partNumber: Number(p.partNumber),
-      etag: String(p.etag),
-    }));
-    await env.INSTANCES.resumeMultipartUpload(zipKey(id), uploadId).complete(uploadedParts);
-
-    const now = Date.now();
-    const existing: Partial<InstanceMeta> = (await readMeta(env.INSTANCES, id)) ?? {};
-    const meta: InstanceMeta = {
-      id,
-      name: body.name ?? existing.name ?? "",
-      version: body.version ?? existing.version ?? "",
-      loader: body.loader ?? existing.loader ?? "vanilla",
-      loaderVersion: body.loaderVersion ?? existing.loaderVersion,
-      description: body.description ?? existing.description,
-      sizeBytes: size ?? existing.sizeBytes ?? 0,
-      sha256: body.sha256 ?? existing.sha256 ?? "",
-      downloads: existing.downloads ?? 0,
-      publishedAt: existing.publishedAt ?? now,
-      updatedAt: now,
-      whitelistEnabled: body.whitelistEnabled ?? existing.whitelistEnabled ?? false,
-      allowedDiscordIds: body.allowedDiscordIds ?? existing.allowedDiscordIds ?? [],
-    };
-    await writeMeta(env.INSTANCES, meta);
-
-    // Keep the Supabase row in sync so the launcher's direct-Supabase fallback
-    // also lists it, including the sha256 for integrity verification.
-    await supabaseUpsert(
+    const now = new Date().toISOString();
+    const { data } = await supabaseSelect(
       env,
       "instances",
-      {
-        id,
-        name: meta.name,
-        version: meta.version,
-        modloader: meta.loader,
-        modloader_version: meta.loaderVersion ?? null,
-        description: meta.description ?? null,
-        whitelist_enabled: meta.whitelistEnabled,
-        sha256: meta.sha256,
-      },
-      "id"
+      `select=*&id=eq.${encodeURIComponent(id)}&limit=1`
     );
+    const prev = (data[0] as Record<string, unknown>) ?? {};
 
-    return json(meta);
+    const row: Record<string, unknown> = {
+      id,
+      name: body.name ?? prev.name ?? "",
+      version: body.version ?? prev.version ?? "",
+      modloader: body.loader ?? prev.modloader ?? "vanilla",
+      modloader_version: body.loaderVersion ?? prev.modloader_version ?? null,
+      description: body.description ?? prev.description ?? null,
+      whitelist_enabled:
+        body.whitelistEnabled ?? Boolean(prev.whitelist_enabled ?? false),
+      allowed_discord_ids:
+        body.allowedDiscordIds ??
+        (Array.isArray(prev.allowed_discord_ids) ? prev.allowed_discord_ids : []),
+      size_bytes: body.size ?? Number(prev.size_bytes ?? 0),
+      sha256: body.sha256 ?? prev.sha256 ?? "",
+      updated_at: now,
+      published_at: prev.published_at ?? now,
+    };
+
+    const { error } = await supabaseUpsert(env, "instances", row, "id");
+    if (error) return json({ error: "No se pudo completar la publicación" }, 500);
+    return json(toRemote(row));
   } catch (err) {
-    console.error("completeMultipartUpload failed", err);
+    console.error("complete publish failed", err);
     return json({ error: "No se pudo completar la publicación" }, 500);
   }
 }
 
 async function handleDownload(env: Env, id: string): Promise<Response> {
-  const obj = await env.INSTANCES.get(zipKey(id));
-  if (!obj) return notFound("Instancia no encontrada o sin archivo publicado");
-
-  // Best-effort download counter
-  try {
-    const meta = await readMeta(env.INSTANCES, id);
-    if (meta) {
-      meta.downloads = (meta.downloads ?? 0) + 1;
-      meta.updatedAt = Date.now();
-      await writeMeta(env.INSTANCES, meta);
-    }
-  } catch (err) {
-    console.error("Failed to bump downloads", err);
+  if (!(await objectExists(env, id))) {
+    return notFound("Instancia no encontrada o sin archivo publicado");
   }
-
-  const headers = new Headers(corsHeaders);
-  headers.set("Content-Type", "application/zip");
-  headers.set("Content-Disposition", `attachment; filename="${id}.zip"`);
-  headers.set("Content-Length", String(obj.size));
-  if (obj.etag) headers.set("ETag", obj.etag);
-  return new Response(obj.body, { headers });
+  await bumpDownloads(env, id);
+  const publicUrl = `${env.SUPABASE_URL}/storage/v1/object/public/${env.SUPABASE_BUCKET}/${encodeURIComponent(id)}.zip`;
+  return new Response(null, {
+    status: 302,
+    headers: {
+      ...corsHeaders,
+      Location: publicUrl,
+      "Content-Disposition": `attachment; filename="${id}.zip"`,
+    },
+  });
 }
 
 async function handleDelete(env: Env, id: string): Promise<Response> {
-  await env.INSTANCES.delete(zipKey(id));
-  await env.INSTANCES.delete(metaKey(id));
+  await deleteObject(env, id);
   const { error } = await supabaseDelete(env, "instances", `id=eq.${id}`);
   if (error) console.error("Supabase delete failed", error);
   return ok();
@@ -543,18 +506,11 @@ export default {
       return handleDownload(env, decodeURIComponent(downloadMatch[1]));
     }
 
-    // ── Catalog: part upload (the launcher PUTs to the URL returned by
-    //    POST /instances/upload/part). No auth: the uploadId acts as a
-    //    capability token, and publishing still requires the Bearer token. ────
-
-    const partMatch = path.match(
-      /^\/instances\/([^/]+)\/upload\/([^/]+)\/part\/([0-9]+)$/
-    );
-    if (request.method === "PUT" && partMatch) {
-      return handlePartPut(request, env, partMatch[1], partMatch[2], partMatch[3]);
-    }
-
     // ── Catalog: upload management (publish token required) ─────────────────
+    // The launcher calls /init to get a signed upload URL, PUTs the ZIP body
+    // straight to that URL (x-upsert), then calls /complete with the metadata.
+    // No part endpoints: Supabase Storage signed upload URLs accept the whole
+    // file body in one PUT (up to a few hundred MB).
 
     const auth = (request.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
     const authorized = auth.length > 0 && env.PUBLISH_TOKEN && timingSafeEqual(auth, env.PUBLISH_TOKEN);
@@ -564,16 +520,6 @@ export default {
       try {
         const body = await request.json<{ id?: string }>();
         return handleInitUpload(env, body);
-      } catch {
-        return json({ error: "Invalid JSON body" }, 400);
-      }
-    }
-
-    if (request.method === "POST" && path === "/instances/upload/part") {
-      if (!authorized) return unauthorized();
-      try {
-        const body = await request.json<{ id?: string; uploadId?: string; partNumber?: number }>();
-        return handlePartUrl(request, env, body);
       } catch {
         return json({ error: "Invalid JSON body" }, 400);
       }

@@ -38,6 +38,45 @@ begin
   end if;
 end $$;
 
+-- Columnas de catálogo remoto (publicar desde el launcher vía Supabase Storage):
+-- size_bytes (tamaño del ZIP), downloads (contador de descargas),
+-- published_at / updated_at (fechas de publicación/última actualización) y
+-- allowed_discord_ids (lista de Discord IDs permitidos para instancias con
+-- whitelist habilitada). Todas idempotentes.
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'instances' and column_name = 'size_bytes'
+  ) then
+    alter table public.instances add column size_bytes bigint;
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'instances' and column_name = 'downloads'
+  ) then
+    alter table public.instances add column downloads bigint not null default 0;
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'instances' and column_name = 'published_at'
+  ) then
+    alter table public.instances add column published_at timestamptz;
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'instances' and column_name = 'updated_at'
+  ) then
+    alter table public.instances add column updated_at timestamptz;
+  end if;
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'instances' and column_name = 'allowed_discord_ids'
+  ) then
+    alter table public.instances add column allowed_discord_ids jsonb not null default '[]'::jsonb;
+  end if;
+end $$;
+
 -- ── Tabla: mods ──────────────────────────────────────────────────────────
 create table if not exists public.mods (
   id                    uuid primary key default gen_random_uuid(),
@@ -334,5 +373,6 @@ insert into storage.buckets (id, name, public)
 values
   ('assets', 'assets', true),
   ('mods', 'mods', true),
-  ('configs', 'configs', true)
+  ('configs', 'configs', true),
+  ('instances', 'instances', true)
 on conflict (id) do nothing;

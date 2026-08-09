@@ -1,10 +1,11 @@
-// Remote instance catalog backed by the Cloudflare worker + R2.
+// Remote instance catalog backed by a Cloudflare worker + Supabase Storage.
 //
 // Admins package a locally-built instance (its own folder plus the
-// version/libraries/assets it needs) into a zip and upload it to R2 through
-// presigned multipart URLs — only small JSON touches the worker, so zips of
-// several hundred MB upload fine. Users then list and install these with a
-// single click, skipping the slow Mojang CDN round trips.
+// version/libraries/assets it needs) into a zip and upload it to a public
+// Supabase Storage bucket through a signed URL returned by the worker — only
+// small JSON touches the worker, so zips of several hundred MB upload fine.
+// Users then list and install these with a single click, skipping the slow
+// Mojang CDN round trips.
 use crate::downloader::{emit_progress, DownloadProgress};
 use crate::instances::{InstanceConfig, InstanceStore, LoaderType};
 use crate::settings::LauncherSettings;
@@ -15,11 +16,43 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::pin::Pin;
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncWriteExt, ReadBuf};
+use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
-/// Size of each uploaded part (must be >= 5 MB for R2 multipart).
-const REMOTE_PART_SIZE: u64 = 64 * 1024 * 1024;
+/// Size of each read chunk while streaming the ZIP upload.
+const REMOTE_UPLOAD_CHUNK: usize = 64 * 1024;
+
+/// Wraps the file being uploaded so we can report upload progress as bytes
+/// are read and sent to the signed upload URL.
+struct CountingReader {
+    inner: tokio::fs::File,
+    done: u64,
+    total: u64,
+    on_progress: Box<dyn Fn(u64) + Send>,
+}
+
+impl AsyncRead for CountingReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len() as u64;
+        let res = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if let Poll::Ready(Ok(())) = &res {
+            self.done += buf.filled().len() as u64 - before;
+            if self.done >= self.total {
+                (self.on_progress)(self.total);
+            } else {
+                (self.on_progress)(self.done);
+            }
+        }
+        res
+    }
+}
 
 fn deserialize_bool_from_anything<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where
@@ -78,11 +111,6 @@ pub struct RemoteInstance {
 #[serde(rename_all = "camelCase")]
 struct UploadInit {
     id: String,
-    upload_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct PartUrl {
     url: String,
 }
 
@@ -396,62 +424,47 @@ pub async fn publish(
         .json()
         .await?;
 
-    let mut file = tokio::fs::File::open(&zip_path).await?;
-    let mut parts: Vec<serde_json::Value> = Vec::new();
-    let mut done: u64 = 0;
-    let mut part_number: u32 = 1;
-    loop {
-        let mut buf = vec![0u8; REMOTE_PART_SIZE as usize];
-        let n = file.read(&mut buf).await?;
-        if n == 0 {
-            break;
-        }
-        buf.truncate(n);
-
-        let signed: PartUrl = client
-            .post(format!("{base}/instances/upload/part"))
-            .bearer_auth(&token)
-            .json(&serde_json::json!({
-                "id": instance.id,
-                "uploadId": init.upload_id,
-                "partNumber": part_number
-            }))
-            .send()
-            .await?
-            .error_for_status()
-            .map_err(|e| AppError::from(format!("No se pudo firmar la parte {part_number}: {e}")))?
-            .json()
-            .await?;
-
-        let upload_resp = client
-            .put(&signed.url)
-            .body(buf)
-            .send()
-            .await?
-            .error_for_status()
-            .map_err(|e| AppError::from(format!("Fallo al subir la parte {part_number}: {e}")))?;
-
-        let etag = upload_resp
-            .headers()
-            .get("etag")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("")
-            .to_string();
-
-        parts.push(serde_json::json!({ "partNumber": part_number, "etag": etag }));
-        done += n as u64;
+    let file = tokio::fs::File::open(&zip_path).await?;
+    let progress_id = instance.id.clone();
+    let progress_app = app.clone();
+    let on_progress: Box<dyn Fn(u64) + Send> = Box::new(move |done: u64| {
         let pct = if size > 0 { done * 100 / size } else { 0 };
-        emit("publish", None, done, size, format!("Subiendo... {pct}%"));
-        part_number += 1;
-    }
+        emit_progress(
+            &progress_app,
+            DownloadProgress {
+                instance_id: format!("publish:{progress_id}"),
+                stage: "publish".to_string(),
+                file_name: None,
+                downloaded_bytes: done,
+                total_bytes: size,
+                speed_bps: 0,
+                eta_seconds: 0,
+                log: format!("Subiendo... {pct}%"),
+            },
+        );
+    });
+    let counting = CountingReader {
+        inner: file,
+        done: 0,
+        total: size,
+        on_progress,
+    };
+    client
+        .put(&init.url)
+        .header("x-upsert", "true")
+        .header("Content-Type", "application/zip")
+        .header(reqwest::header::CONTENT_LENGTH, size.to_string())
+        .body(reqwest::Body::wrap_stream(ReaderStream::with_capacity(counting, REMOTE_UPLOAD_CHUNK)))
+        .send()
+        .await?
+        .error_for_status()
+        .map_err(|e| AppError::from(format!("Fallo al subir el archivo: {e}")))?;
 
     let result: RemoteInstance = client
         .post(format!("{base}/instances/upload/complete"))
         .bearer_auth(&token)
         .json(&serde_json::json!({
             "id": instance.id,
-            "uploadId": init.upload_id,
-            "parts": parts,
             "size": size,
             "name": instance.name,
             "version": instance.version,

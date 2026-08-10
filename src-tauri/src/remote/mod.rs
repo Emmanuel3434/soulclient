@@ -266,13 +266,16 @@ fn extract_zip(zip_path: &Path, new_instance_id: &str, mut on_file: impl FnMut(S
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        if size > 0 {
-            if let Ok(meta) = std::fs::metadata(&target) {
-                if meta.len() == size {
-                    done += size;
-                    on_file(rel.display().to_string(), done, total);
-                    continue;
-                }
+        if entry.is_dir() {
+            std::fs::create_dir_all(&target)?;
+            continue;
+        }
+        let size = entry.size();
+        if let Ok(meta) = std::fs::metadata(&target) {
+            if meta.len() == size {
+                done += size;
+                on_file(rel.display().to_string(), done, total);
+                continue;
             }
         }
         let mut out = std::fs::File::create(&target)?;

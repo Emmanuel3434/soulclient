@@ -153,6 +153,14 @@
   .instance-card:hover{ border-color: #454545; background: var(--surface-2); }
   .instance-card .name-row{ display:flex; align-items:center; gap: 9px; font-weight: 700; font-size: 15px; }
   .instance-card .name-row .icon{ font-size: 18px; }
+  .instance-card .instance-cover{
+    height: 120px;
+    border-radius: calc(var(--radius) - 3px);
+    margin-bottom: 12px;
+    background-size: cover;
+    background-position: center;
+    background-color: var(--surface-2);
+  }
   .instance-card .meta{ margin-top: 5px; font-size: 12.5px; color: var(--muted); }
   .instance-card .meta .lock{ color: var(--accent); }
 
@@ -176,6 +184,12 @@
   .row-item .main strong{ font-weight: 600; }
   .row-item .sub{ color: var(--muted); font-size: 12px; margin-top: 2px; }
   .row-item .actions{ display:flex; gap: 8px; flex-shrink:0; }
+  .row-item .sub .inline-input{
+    background: var(--input-bg); color: var(--text); border:1px solid var(--border);
+    border-radius: 6px; padding: 4px 7px; font-size: 12px;
+  }
+  .row-item .sub .inline-check{ margin-left: 8px; display:inline-flex; align-items:center; gap: 4px; }
+  .row-item .mod-row .actions{ align-items:center; }
   .badge{
     display:inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px;
     border: 1px solid var(--border); color: var(--muted);
@@ -326,7 +340,13 @@
         <p class="helper-text" style="margin:4px 0 10px;">Sube el .jar — se guarda cifrado en el ModVault del launcher (nunca como archivo plano en la instancia).</p>
         <div class="form-grid">
           <div class="field"><label>Archivo .jar</label><input type="file" id="mod-file" accept=".jar"></div>
-          <div class="field"><label>Fuente (opcional)</label><input type="text" id="mod-source" placeholder="modrinth / curseforge / manual"></div>
+          <div class="field"><label>Fuente</label>
+            <select id="mod-source">
+              <option value="custom" selected>custom</option>
+              <option value="modrinth">modrinth</option>
+              <option value="modpack">modpack</option>
+            </select>
+          </div>
         </div>
         <button class="btn btn-sm" id="add-mod-btn" style="margin-top:14px;">+ Subir mod</button>
         <p class="helper-text" id="mod-upload-status" style="margin-top:8px;"></p>
@@ -447,6 +467,16 @@
       </div>
     </div>
 
+    <div class="modal-section" id="ei-cover-section">
+      <h4>Imagen de portada</h4>
+      <p class="helper-text" id="ei-cover-status">Sin imagen todavía. Sube una imagen (png/jpg) desde tu ordenador.</p>
+      <div class="add-inline">
+        <input type="file" id="ei-cover-file" accept="image/*">
+        <button class="btn btn-sm" id="ei-cover-upload">Subir imagen</button>
+      </div>
+      <div class="helper-text">La imagen se guarda en Supabase Storage y se muestra en el launcher como portada de la instancia.</div>
+    </div>
+
     <div class="modal-section" id="ei-publish-section">
       <h4>Publicar ZIP</h4>
       <p class="helper-text" id="ei-publish-status">Sin archivo publicado todavía.</p>
@@ -555,12 +585,18 @@
       grid.innerHTML = `<div class="empty-state" style="width:100%;"><strong>Sin instancias todavía</strong>Crea la primera con «+ Nueva instancia».</div>`;
       return;
     }
-    grid.innerHTML = state.instances.map((i) => `
+    grid.innerHTML = state.instances.map((i) => {
+      const cover = i.logo_path
+        ? `<div class="instance-cover" style="background-image:url('${escapeHtml(i.logo_path)}')"></div>`
+        : `<div class="name-row"><span class="icon">${escapeHtml(i.icon || '🎮')}</span> ${escapeHtml(i.name)}</div>`;
+      return `
       <div class="instance-card" data-id="${i.id}">
+        ${cover}
         <div class="name-row"><span class="icon">${escapeHtml(i.icon || '🎮')}</span> ${escapeHtml(i.name)}</div>
         <div class="meta">${escapeHtml(i.modloader || '')} · ${escapeHtml(i.version || '')}${i.java_version ? ' · Java ' + escapeHtml(i.java_version) : ''}${i.whitelist_enabled ? ' · <span class="lock">🔒</span> whitelist' : ''}</div>
       </div>
-    `).join('');
+    `;
+    }).join('');
     grid.querySelectorAll('.instance-card').forEach((card) => {
       card.addEventListener('click', () => openInstanceModal(card.dataset.id));
     });
@@ -621,6 +657,9 @@
     el('ei-publish-status').textContent = inst.sha256
       ? `Publicado · ${formatBytes(inst.size_bytes)} · sha256 ${shortSha(inst.sha256)}`
       : 'Sin archivo publicado todavía.';
+    el('ei-cover-status').textContent = inst.logo_path
+      ? 'Ya hay una imagen de portada. Sube otra para reemplazarla.'
+      : 'Sin imagen todavía. Sube una imagen (png/jpg) desde tu ordenador.';
     el('ei-whitelist-list').innerHTML = '<p class="helper-text">Cargando…</p>';
     el('instance-modal').classList.add('visible');
     try {
@@ -674,6 +713,39 @@
   });
 
   el('ei-cancel').addEventListener('click', () => el('instance-modal').classList.remove('visible'));
+
+  // ---------------- Imagen de portada ----------------
+  el('ei-cover-upload').addEventListener('click', async () => {
+    const file = el('ei-cover-file').files[0];
+    const status = el('ei-cover-status');
+    if (!file) { toast('Selecciona una imagen', true); return; }
+    if (!/^image\//i.test(file.type)) { toast('El archivo debe ser una imagen', true); return; }
+    const btn = el('ei-cover-upload');
+    btn.disabled = true;
+    status.textContent = 'Subiendo imagen…';
+    try {
+      const { signedUrl, path } = await api(`api.php?action=sign_cover_upload&instance_id=${encodeURIComponent(state.editingInstance.id)}&file=${encodeURIComponent(file.name)}`);
+      const res = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type, 'x-upsert': 'true' },
+        body: file,
+      });
+      if (!res.ok) throw new Error('Supabase Storage respondió ' + res.status);
+      const logoPath = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${path}`;
+      await api(`api.php?action=update&table=instances&id=${encodeURIComponent(state.editingInstance.id)}`, {
+        method: 'POST', body: JSON.stringify({ logo_path: logoPath }),
+      });
+      state.editingInstance.logo_path = logoPath;
+      el('ei-cover-status').textContent = 'Imagen subida. Se aplicará al guardar la instancia.';
+      el('ei-cover-file').value = '';
+      toast('Imagen subida');
+    } catch (err) {
+      status.textContent = 'Error: ' + err.message;
+      toast('Error al subir la imagen: ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // ---------------- Publicar ZIP ----------------
   el('ei-publish').addEventListener('click', async () => {
@@ -765,14 +837,40 @@
     const wrap = el('mods-list');
     if (rows.length === 0) { wrap.innerHTML = `<p class="helper-text">Sin mods añadidos todavía.</p>`; return; }
     wrap.innerHTML = rows.map((m) => `
-      <div class="row-item" data-id="${m.id}">
-        <div class="main"><strong>${escapeHtml(m.file_name || m.download_url || 'mod')}</strong>
-          <div class="sub">${escapeHtml(m.source || '')}${m.size_bytes ? ' · ' + Math.round(m.size_bytes/1024) + ' KB' : ''}</div>
+      <div class="row-item mod-row" data-id="${m.id}">
+        <div class="main">
+          <strong>${escapeHtml(m.file_name || m.download_url || 'mod')}</strong>
+          <div class="sub">
+            <select class="inline-input" data-field="source" style="max-width:180px;">
+              <option value="custom" ${(m.source || 'custom') === 'custom' ? 'selected' : ''}>custom</option>
+              <option value="modrinth" ${m.source === 'modrinth' ? 'selected' : ''}>modrinth</option>
+              <option value="modpack" ${m.source === 'modpack' ? 'selected' : ''}>modpack</option>
+            </select>
+            <label class="inline-check"><input type="checkbox" data-field="mandatory" ${m.is_mandatory !== false ? 'checked' : ''}> obligatorio</label>
+            ${m.size_bytes ? ' · ' + Math.round(m.size_bytes/1024) + ' KB' : ''}
+          </div>
         </div>
-        <div class="actions"><button class="btn-ghost btn-sm mod-del" data-id="${m.id}">Eliminar</button></div>
+        <div class="actions">
+          <button class="btn-ghost btn-sm mod-save" data-id="${m.id}">Guardar</button>
+          <button class="btn-ghost btn-sm mod-del" data-id="${m.id}">Eliminar</button>
+        </div>
       </div>
     `).join('');
     wrap.querySelectorAll('.mod-del').forEach((b) => b.addEventListener('click', () => deleteRow('mods', b.dataset.id, loadModpackData)));
+    wrap.querySelectorAll('.mod-save').forEach((b) => b.addEventListener('click', async () => {
+      const row = b.closest('.mod-row');
+      const payload = {
+        source: row.querySelector('[data-field="source"]').value.trim() || 'custom',
+        is_mandatory: row.querySelector('[data-field="mandatory"]').checked,
+      };
+      try {
+        await api(`api.php?action=update&table=mods&id=${encodeURIComponent(b.dataset.id)}`, {
+          method: 'POST', body: JSON.stringify(payload),
+        });
+        toast('Cambios guardados');
+        loadModpackData();
+      } catch (err) { toast('Error al guardar: ' + err.message, true); }
+    }));
   }
 
   function renderConfigs(rows) {
@@ -820,7 +918,8 @@
           storage_path: storagePath,
           sha1,
           size_bytes: file.size,
-          source: el('mod-source').value.trim() || 'custom',
+          source: el('mod-source').value,
+          is_mandatory: true,
           download_url: downloadUrl,
         }),
       });

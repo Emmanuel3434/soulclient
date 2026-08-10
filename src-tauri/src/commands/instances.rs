@@ -368,6 +368,42 @@ pub async fn launch_instance(
     )
     .ok_or_else(|| AppError::from("No se encontró una instalación de Java. Configúrala en Ajustes."))?;
 
+    // Auto-sync protected mods before launching so mods published on the
+    // panel reach players without needing a manual sync. Instances installed
+    // before the `remote_id` feature was added won't have it yet, so we try
+    // to resolve it by matching the instance name against the catalog.
+    let mut mod_sync_remote_id = instance.remote_id.clone();
+    if mod_sync_remote_id.is_none() {
+        if let Ok(remote_instances) =
+            crate::remote::list(&state.http_client, &settings, None, true).await
+        {
+            if let Some(m) = remote_instances
+                .iter()
+                .find(|r| r.name.eq_ignore_ascii_case(&instance.name))
+            {
+                mod_sync_remote_id = Some(m.id.clone());
+                if let Ok(mut inst) = state.instances.get(&id) {
+                    inst.remote_id = mod_sync_remote_id.clone();
+                    let _ = state.instances.update(inst);
+                }
+            }
+        }
+    }
+    if let Some(remote_id) = mod_sync_remote_id {
+        if let Err(e) = crate::remote::sync_mods(
+            &state.http_client,
+            &settings,
+            &id,
+            &remote_id,
+            &state.mod_vault,
+            |_file, _done, _total| {},
+        )
+        .await
+        {
+            tracing::warn!("No se pudieron sincronizar mods de {id}: {e}");
+        }
+    }
+
     let version_json_path = AppPaths::versions_dir()
         .join(instance.version_cache_key())
         .join(format!("{}.json", instance.version_cache_key()));

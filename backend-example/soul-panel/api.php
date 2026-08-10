@@ -90,8 +90,18 @@ function storageSignedUploadUrl($id) {
 // URL firmada para subir un mod (.jar) de una instancia a Storage, bajo la
 // ruta `mods/{instance_id}/{file}`. El PUT lo hace el navegador directo.
 function modSignedUploadUrl($instanceId, $fileName) {
+  return storageSignedUploadUrlFor('mods', $instanceId, $fileName);
+}
+
+// URL firmada para subir la imagen de portada de una instancia, bajo la
+// ruta `covers/{instance_id}/{file}`. El PUT lo hace el navegador directo.
+function coverSignedUploadUrl($instanceId, $fileName) {
+  return storageSignedUploadUrlFor('covers', $instanceId, $fileName);
+}
+
+function storageSignedUploadUrlFor($folder, $instanceId, $fileName) {
   $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $fileName);
-  $path = 'mods/' . rawurlencode($instanceId) . '/' . rawurlencode($safe);
+  $path = $folder . '/' . rawurlencode($instanceId) . '/' . rawurlencode($safe);
   $ch = curl_init(SUPABASE_URL . '/storage/v1/object/upload/sign/' . SUPABASE_BUCKET . '/' . $path);
   curl_setopt_array($ch, [
     CURLOPT_CUSTOMREQUEST => 'POST',
@@ -108,7 +118,7 @@ function modSignedUploadUrl($instanceId, $fileName) {
   $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
   curl_close($ch);
   if ($response === false || $status >= 400) {
-    throw new Exception('No se pudo iniciar la subida del mod (HTTP ' . $status . ')');
+    throw new Exception('No se pudo iniciar la subida (HTTP ' . $status . ')');
   }
   $data = json_decode($response, true);
   $raw = $data['signedUrl'] ?? $data['signedURL'] ?? $data['url'] ?? null;
@@ -146,6 +156,7 @@ function instanceRowToRemote($row) {
     'updatedAt' => tsToMs($row['updated_at'] ?? null, tsToMs($row['created_at'] ?? null, 0)),
     'whitelistEnabled' => (bool)($row['whitelist_enabled'] ?? false),
     'allowedDiscordIds' => array_map('strval', (array)($row['allowed_discord_ids'] ?? [])),
+    'coverImage' => (string)($row['logo_path'] ?? ''),
   ];
 }
 
@@ -160,6 +171,7 @@ function modRowToRemote($row) {
     'sizeBytes' => (int)($row['size_bytes'] ?? 0),
     'downloadUrl' => (string)($row['download_url'] ?? ''),
     'source' => (string)($row['source'] ?? 'custom'),
+    'isMandatory' => (bool)($row['is_mandatory'] ?? true),
   ];
 }
 
@@ -253,6 +265,19 @@ try {
         http_response_code(400); echo json_encode(['error' => 'Faltan instance_id y file']); break;
       }
       echo json_encode(['signedUrl' => modSignedUploadUrl($instanceId, $file)]);
+      break;
+
+    case 'sign_cover_upload':
+      $instanceId = $_GET['instance_id'] ?? '';
+      $file = $_GET['file'] ?? '';
+      if (!$instanceId || !$file) {
+        http_response_code(400); echo json_encode(['error' => 'Faltan instance_id y file']); break;
+      }
+      $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $file);
+      echo json_encode([
+        'signedUrl' => coverSignedUploadUrl($instanceId, $file),
+        'path' => 'covers/' . $instanceId . '/' . $safe,
+      ]);
       break;
 
     case 'finalize_publish':

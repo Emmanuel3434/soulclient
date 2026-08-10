@@ -41,4 +41,6 @@ export interface RemoteInstance {
   updatedAt: number;
   whitelistEnabled: boolean;
   allowedDiscordIds: string[];
+  /** Public cover image URL (from the panel's logo_path column). */
+  coverImage?: string;
 }

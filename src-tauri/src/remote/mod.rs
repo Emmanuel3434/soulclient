@@ -105,6 +105,10 @@ pub struct RemoteInstance {
     pub whitelist_enabled: bool,
     #[serde(default)]
     pub allowed_discord_ids: Vec<String>,
+    /// Public cover image URL for the instance (optional). Set from the
+    /// panel's `logo_path` column so the launcher can show a cover.
+    #[serde(default)]
+    pub cover_image: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,6 +136,8 @@ pub struct RemoteMod {
     pub download_url: String,
     #[serde(default)]
     pub source: String,
+    #[serde(default)]
+    pub is_mandatory: bool,
 }
 
 /// The instance API lives on the same worker as the Discord backend, so the
@@ -625,7 +631,7 @@ pub async fn install(
         loader,
         loader_version: meta.loader_version.clone(),
         directory: AppPaths::instance_dir(&new_id).to_string_lossy().to_string(),
-        cover_image: None,
+        cover_image: meta.cover_image.clone(),
         ram_mb: 4096,
         jvm_args: String::new(),
         custom_java_path: None,
@@ -711,6 +717,10 @@ pub async fn sync_mods(
         if let Some(existing) = vault.find_by_remote(instance_id, &m.id) {
             let same = existing.sha1.as_deref() == Some(m.sha1.as_str()) && !m.sha1.is_empty();
             if same {
+                // Same file, but the panel may have toggled the mandatory flag.
+                if existing.is_mandatory != m.is_mandatory {
+                    vault.update(&existing.id, None, Some(existing.version.clone()), Some(m.is_mandatory))?;
+                }
                 done += m.size_bytes;
                 on_file(m.file_name.clone(), done, total);
                 continue;
@@ -746,7 +756,7 @@ pub async fn sync_mods(
             continue;
         }
 
-        vault.add_remote(instance_id, &tmp, &m.file_name, &local_sha, &m.id)?;
+        vault.add_remote(instance_id, &tmp, &m.file_name, &local_sha, &m.id, m.is_mandatory)?;
         let _ = std::fs::remove_file(&tmp);
         done += bytes.len() as u64;
         on_file(m.file_name.clone(), done, total);

@@ -93,6 +93,17 @@ create table if not exists public.mods (
   created_at            timestamptz not null default now()
 );
 
+-- Columna is_mandatory (¿el launcher debe bloquear la instancia si falta este mod?)
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'mods' and column_name = 'is_mandatory'
+  ) then
+    alter table public.mods add column is_mandatory boolean not null default true;
+  end if;
+end $$;
+
 -- Constraint para prevención de duplicados de Modrinth en la misma instancia
 do $$
 begin

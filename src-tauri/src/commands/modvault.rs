@@ -117,14 +117,26 @@ pub async fn sync_all_protected_mods(
 ) -> AppResult<usize> {
     require_admin(&state, &account_id)?;
     let instances = state.instances.list();
+    let settings = state.settings.get();
+    let remote_instances =
+        crate::remote::list(&state.http_client, &settings, None, true).await?;
     let mut synced = 0usize;
-    for inst in &instances {
+    for mut inst in instances {
+        if inst.remote_id.is_none() {
+            if let Some(m) = remote_instances
+                .iter()
+                .find(|r| r.name.eq_ignore_ascii_case(&inst.name))
+            {
+                inst.remote_id = Some(m.id.clone());
+                let _ = state.instances.update(inst.clone());
+            }
+        }
         let Some(remote_id) = inst.remote_id.clone() else {
             continue;
         };
         match crate::remote::sync_mods(
             &state.http_client,
-            &state.settings.get(),
+            &settings,
             &inst.id,
             &remote_id,
             &state.mod_vault,

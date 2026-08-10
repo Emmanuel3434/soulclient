@@ -185,6 +185,7 @@ impl ModVault {
         original_name: &str,
         sha1: &str,
         remote_id: &str,
+        is_mandatory: bool,
     ) -> AppResult<VaultModEntry> {
         let plaintext = std::fs::read(source).map_err(AppError::from)?;
         let key = derive_key();
@@ -213,7 +214,7 @@ impl ModVault {
             version: "1.0.0".to_string(),
             original_name: original_name.to_string(),
             size_bytes: plaintext.len() as u64,
-            is_mandatory: true,
+            is_mandatory,
             added_at: chrono::Utc::now().timestamp_millis(),
             sha1: Some(sha1.to_string()),
             remote_id: Some(remote_id.to_string()),

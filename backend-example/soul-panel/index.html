@@ -322,14 +322,14 @@
 
     <div id="mp-content" style="display:none;">
       <div class="panel">
-        <h3>Añadir mod</h3>
+        <h3>Añadir mod protegido</h3>
+        <p class="helper-text" style="margin:4px 0 10px;">Sube el .jar — se guarda cifrado en el ModVault del launcher (nunca como archivo plano en la instancia).</p>
         <div class="form-grid">
-          <div class="field"><label>Nombre del archivo</label><input type="text" id="mod-file-name" placeholder="fabric-api-0.100.0.jar"></div>
-          <div class="field"><label>Enlace de descarga</label><input type="url" id="mod-download-url" placeholder="https://modrinth.com/…"></div>
-          <div class="field"><label>Fuente</label><input type="text" id="mod-source" placeholder="modrinth / curseforge / manual"></div>
-          <div class="field"><label>Tamaño (bytes, opcional)</label><input type="number" id="mod-size" placeholder="1048576"></div>
+          <div class="field"><label>Archivo .jar</label><input type="file" id="mod-file" accept=".jar"></div>
+          <div class="field"><label>Fuente (opcional)</label><input type="text" id="mod-source" placeholder="modrinth / curseforge / manual"></div>
         </div>
-        <button class="btn btn-sm" id="add-mod-btn" style="margin-top:14px;">+ Añadir mod</button>
+        <button class="btn btn-sm" id="add-mod-btn" style="margin-top:14px;">+ Subir mod</button>
+        <p class="helper-text" id="mod-upload-status" style="margin-top:8px;"></p>
       </div>
       <div class="row-list" id="mods-list"></div>
 
@@ -513,6 +513,11 @@
   }
 
   const state = { instances: [], mpInstanceId: null, cdInstanceId: null, editingInstance: null };
+
+  // Mismas constantes que config.php (necesarias en el navegador para
+  // construir la URL pública de descarga de un mod).
+  const SUPABASE_URL = 'https://tryqwbidrcmdhkyllxti.supabase.co';
+  const SUPABASE_BUCKET = 'instances';
 
   // ---------------- Tabs ----------------
   document.querySelectorAll('.tab-btn').forEach((btn) => {
@@ -785,23 +790,51 @@
   }
 
   el('add-mod-btn').addEventListener('click', async () => {
-    const file_name = el('mod-file-name').value.trim();
-    if (!file_name) { toast('Indica el nombre del archivo', true); return; }
+    const fileInput = el('mod-file');
+    const file = fileInput.files && fileInput.files[0];
+    const status = el('mod-upload-status');
+    if (!file) { toast('Selecciona un archivo .jar', true); return; }
+    if (!file.name.toLowerCase().endsWith('.jar')) { toast('Solo se aceptan archivos .jar', true); return; }
+    const btn = el('add-mod-btn');
+    btn.disabled = true;
+    status.textContent = 'Calculando SHA-1…';
     try {
+      const buf = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest('SHA-1', buf);
+      const sha1 = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
+      status.textContent = `Subiendo ${file.name} (${formatBytes(file.size)})…`;
+      const { signedUrl } = await api(`api.php?action=sign_mod_upload&instance_id=${encodeURIComponent(state.mpInstanceId)}&file=${encodeURIComponent(file.name)}`);
+      const res = await fetch(signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/java-archive', 'x-upsert': 'true' },
+        body: file,
+      });
+      if (!res.ok) throw new Error('Supabase Storage respondió ' + res.status);
+      const storagePath = `mods/${state.mpInstanceId}/${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+      const downloadUrl = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${storagePath}`;
       await api('api.php?action=insert&table=mods', {
         method: 'POST',
         body: JSON.stringify({
           instance_id: state.mpInstanceId,
-          file_name,
-          download_url: el('mod-download-url').value.trim(),
-          source: el('mod-source').value.trim(),
-          size_bytes: el('mod-size').value.trim(),
+          file_name: file.name,
+          storage_path: storagePath,
+          sha1,
+          size_bytes: file.size,
+          source: el('mod-source').value.trim() || 'custom',
+          download_url: downloadUrl,
         }),
       });
-      ['mod-file-name','mod-download-url','mod-source','mod-size'].forEach((id) => el(id).value = '');
-      toast('Mod añadido');
+      el('mod-file').value = '';
+      el('mod-source').value = '';
+      status.textContent = `Subido · ${formatBytes(file.size)} · sha1 ${shortSha(sha1)}`;
+      toast('Mod subido y registrado');
       loadModpackData();
-    } catch (err) { toast('Error al añadir mod: ' + err.message, true); }
+    } catch (err) {
+      status.textContent = 'Error: ' + err.message;
+      toast('Error al subir el mod: ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   el('add-cfg-btn').addEventListener('click', async () => {

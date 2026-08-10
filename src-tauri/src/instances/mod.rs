@@ -42,6 +42,10 @@ pub struct InstanceConfig {
     /// `whitelist_enabled` is true. Ignored otherwise.
     #[serde(default)]
     pub allowed_discord_ids: Vec<String>,
+    /// Catalog/remote id this local instance was installed from (if any).
+    /// Used to sync that instance's protected mods from the panel.
+    #[serde(default)]
+    pub remote_id: Option<String>,
 }
 
 impl InstanceConfig {

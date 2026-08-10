@@ -36,6 +36,14 @@ pub struct VaultModEntry {
     pub size_bytes: u64,
     pub is_mandatory: bool,
     pub added_at: i64,
+    /// SHA-1 of the plaintext jar. Used to skip re-downloading a remote mod
+    /// that is already encrypted in the vault.
+    #[serde(default)]
+    pub sha1: Option<String>,
+    /// Supabase `mods.id` of the published mod this vault entry came from.
+    /// Only remote-synced mods set this; locally-added ones leave it `None`.
+    #[serde(default)]
+    pub remote_id: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -164,14 +172,105 @@ impl ModVault {
         Ok(entry)
     }
 
+    /// Adds a mod that was downloaded from the panel (Supabase) to the vault.
+    /// Always mandatory and always stamped with its SHA-1 + remote id so a
+    /// later sync can skip it and prune it once unpublished. Callers should
+    /// check `find_by_remote` first to avoid re-encrypting an existing copy.
+    pub fn add_remote(
+        &self,
+        instance_id: &str,
+        source: &std::path::Path,
+        original_name: &str,
+        sha1: &str,
+        remote_id: &str,
+    ) -> AppResult<VaultModEntry> {
+        let plaintext = std::fs::read(source).map_err(AppError::from)?;
+        let key = derive_key();
+        let cipher = Aes256Gcm::new(GenericArray::from_slice(&key));
+        let mut nonce_bytes = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce_bytes);
+        let nonce = GenericArray::from_slice(&nonce_bytes);
+        let ciphertext = cipher
+            .encrypt(nonce, plaintext.as_ref())
+            .map_err(|_| AppError::from("No se pudo cifrar el mod."))?;
+
+        let id = Uuid::new_v4().to_string();
+        let dest = AppPaths::vault_dir().join(format!("{id}.enc"));
+        let mut file = std::fs::File::create(&dest).map_err(AppError::from)?;
+        file.write_all(&nonce_bytes).map_err(AppError::from)?;
+        file.write_all(&ciphertext).map_err(AppError::from)?;
+
+        let name = original_name
+            .trim_end_matches(".jar")
+            .trim_end_matches(".JAR")
+            .to_string();
+        let entry = VaultModEntry {
+            id,
+            instance_id: instance_id.to_string(),
+            name,
+            version: "1.0.0".to_string(),
+            original_name: original_name.to_string(),
+            size_bytes: plaintext.len() as u64,
+            is_mandatory: true,
+            added_at: chrono::Utc::now().timestamp_millis(),
+            sha1: Some(sha1.to_string()),
+            remote_id: Some(remote_id.to_string()),
+        };
+
+        let mut data = self.inner.write().unwrap();
+        data.mods.push(entry.clone());
+        self.persist(&data)?;
+        Ok(entry)
+    }
+
+    /// Finds a vault entry whose `remote_id` matches the given published mod
+    /// id for the given instance. Returns its sha1 too so sync can decide
+    /// whether to skip (same hash) or refresh.
+    pub fn find_by_remote(&self, instance_id: &str, remote_id: &str) -> Option<VaultModEntry> {
+        self.inner
+            .read()
+            .unwrap()
+            .mods
+            .iter()
+            .find(|m| m.instance_id == instance_id && m.remote_id.as_deref() == Some(remote_id))
+            .cloned()
+    }
+
+    /// Removes every remote-synced vault entry for `instance_id` whose
+    /// `remote_id` is not in `keep_ids` (i.e. it was unpublished from the
+    /// panel). Locally-added mods (no `remote_id`) are never touched.
+    pub fn prune_remote(&self, instance_id: &str, keep_ids: &[String]) -> AppResult<usize> {
+        let mut data = self.inner.write().unwrap();
+        let mut removed = 0usize;
+        data.mods.retain(|m| {
+            if m.instance_id == instance_id {
+                match &m.remote_id {
+                    Some(rid) if !keep_ids.iter().any(|k| k == rid) => {
+                        removed += 1;
+                        let _ = std::fs::remove_file(
+                            AppPaths::vault_dir().join(format!("{}.enc", m.id)),
+                        );
+                        false
+                    }
+                    _ => true,
+                }
+            } else {
+                true
+            }
+        });
+        if removed > 0 {
+            self.persist(&data)?;
+        }
+        Ok(removed)
+    }
+
     pub fn update(
         &self,
         mod_id: &str,
         source: Option<&std::path::Path>,
         version: Option<String>,
         is_mandatory: Option<bool>,
-    ) -> AppResult<VaultModEntry> {
-        let mut data = self.inner.write().unwrap();
+    ) -> AppResult<VaultModEntry> {        let mut data = self.inner.write().unwrap();
         let pos = data
             .mods
             .iter()

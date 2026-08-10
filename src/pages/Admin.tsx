@@ -245,10 +245,17 @@ export default function Admin() {
   };
 
   const handleSyncAll = async () => {
+    if (!activeAccount) {
+      setError("Debes iniciar sesión para sincronizar.");
+      return;
+    }
     setSyncing(true);
     try {
+      const synced = await api.syncAllProtectedMods(activeAccount.id);
       await fetchMods();
-      setSuccessMsg("Sincronización completada. Todos los launchers de los usuarios recibirán estos mods automáticamente.");
+      setSuccessMsg(
+        `Sincronización completada: ${synced} instancia(s) actualizada(s). Los launchers de los usuarios recibirán estos mods automáticamente.`
+      );
       setTimeout(() => setSuccessMsg(null), 4000);
     } catch (err: any) {
       setError("Error durante la sincronización.");

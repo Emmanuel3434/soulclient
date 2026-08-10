@@ -114,6 +114,26 @@ struct UploadInit {
     url: String,
 }
 
+/// A protected mod published for an instance on the panel. The launcher
+/// downloads these (public Supabase Storage URL) and stores them encrypted
+/// in its local ModVault — never as plain files inside the instance folder.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteMod {
+    pub id: String,
+    pub file_name: String,
+    #[serde(default)]
+    pub storage_path: String,
+    #[serde(default)]
+    pub sha1: String,
+    #[serde(default)]
+    pub size_bytes: u64,
+    #[serde(default)]
+    pub download_url: String,
+    #[serde(default)]
+    pub source: String,
+}
+
 /// The instance API lives on the same worker as the Discord backend, so the
 /// base URL is derived from `discord_token_exchange_url` (no new setting).
 fn api_base(settings: &LauncherSettings) -> AppResult<String> {
@@ -618,6 +638,7 @@ pub async fn install(
         total_play_ms: 0,
         whitelist_enabled: meta.whitelist_enabled,
         allowed_discord_ids: meta.allowed_discord_ids.clone(),
+        remote_id: Some(meta.id.clone()),
     };
     instances.insert(config.clone())?;
     Ok(config)
@@ -634,4 +655,108 @@ pub async fn delete(client: &Client, settings: &LauncherSettings, remote_id: &st
         .error_for_status()
         .map_err(|e| AppError::from(format!("Error al eliminar la instancia: {e}")))?;
     Ok(())
+}
+
+/// Fetches the protected mods published for a remote instance (`{base}/instances/{id}/mods`).
+pub async fn list_mods(
+    client: &Client,
+    settings: &LauncherSettings,
+    remote_id: &str,
+) -> AppResult<Vec<RemoteMod>> {
+    let base = api_base(settings)?;
+    let resp = client
+        .get(format!("{base}/instances/{remote_id}/mods"))
+        .send()
+        .await?
+        .error_for_status()
+        .map_err(|e| AppError::from(format!("Error al listar mods de la instancia: {e}")))?;
+    Ok(resp.json().await?)
+}
+
+fn sha1_file(path: &Path) -> AppResult<String> {
+    use std::io::Read;
+    let mut hasher = sha1::Sha1::new();
+    let mut file = std::fs::File::open(path)?;
+    let mut buf = [0u8; 1024 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Synchronizes the protected mods of a remote instance into the local
+/// ModVault. For each published mod it downloads the jar and stores it
+/// encrypted (skipping ones already present with the same sha1), then prunes
+/// vault entries whose remote mod is no longer published. `instance_id` is
+/// the *local* instance the mods belong to; `remote_id` is the catalog id
+/// used to query the panel.
+pub async fn sync_mods(
+    client: &Client,
+    settings: &LauncherSettings,
+    instance_id: &str,
+    remote_id: &str,
+    vault: &crate::modvault::ModVault,
+    mut on_file: impl FnMut(String, u64, u64),
+) -> AppResult<u64> {
+    let mods = list_mods(client, settings, remote_id).await?;
+    let keep_ids: Vec<String> = mods.iter().map(|m| m.id.clone()).collect();
+
+    let mut total: u64 = mods.iter().map(|m| m.size_bytes).sum();
+    let mut done: u64 = 0;
+
+    for m in &mods {
+        if let Some(existing) = vault.find_by_remote(instance_id, &m.id) {
+            let same = existing.sha1.as_deref() == Some(m.sha1.as_str()) && !m.sha1.is_empty();
+            if same {
+                done += m.size_bytes;
+                on_file(m.file_name.clone(), done, total);
+                continue;
+            }
+        }
+
+        let url = if !m.download_url.is_empty() {
+            m.download_url.clone()
+        } else {
+            done += m.size_bytes;
+            continue;
+        };
+
+        let resp = client.get(&url).send().await?.error_for_status().map_err(|e| {
+            AppError::from(format!("Error al descargar el mod {}: {e}", m.file_name))
+        })?;
+        let bytes = resp.bytes().await?;
+
+        let tmp = AppPaths::cache_dir().join(format!("mod_{}.jar", m.id));
+        std::fs::write(&tmp, &bytes).map_err(AppError::from)?;
+
+        // Local copy already present → skip re-encrypting (and skip the SHA
+        // server round-trip that would only confirm what we already know).
+        let local_sha = sha1_file(&tmp)?;
+        let already = vault
+            .find_by_remote(instance_id, &m.id)
+            .map(|e| e.sha1.as_deref() == Some(local_sha.as_str()))
+            .unwrap_or(false);
+        if already {
+            let _ = std::fs::remove_file(&tmp);
+            done += bytes.len() as u64;
+            on_file(m.file_name.clone(), done, total);
+            continue;
+        }
+
+        vault.add_remote(instance_id, &tmp, &m.file_name, &local_sha, &m.id)?;
+        let _ = std::fs::remove_file(&tmp);
+        done += bytes.len() as u64;
+        on_file(m.file_name.clone(), done, total);
+    }
+
+    let pruned = vault.prune_remote(instance_id, &keep_ids)?;
+    tracing::info!(
+        "sync_mods: instance={instance_id} remote={remote_id} mods={} pruned={pruned}",
+        mods.len()
+    );
+    Ok(total)
 }

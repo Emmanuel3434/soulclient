@@ -77,3 +77,68 @@ pub fn remove_protected_mod(
     state.mod_vault.remove(&mod_id)
 }
 
+/// Syncs the protected mods published for an installed instance into the
+/// local ModVault (encrypted, mandatory). Any logged-in user may run this —
+/// it pulls the same public mod list the instance was installed from, so a
+/// player's launcher stays up to date with the mods the admin pushed from
+/// the panel. `local_instance_id` must be an installed instance; its
+/// `remote_id` tells the backend which mods to fetch.
+#[tauri::command]
+pub async fn sync_protected_mods(
+    local_instance_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<u64> {
+    let instance = state
+        .instances
+        .get(&local_instance_id)
+        .ok_or_else(|| AppError::from("Instancia no encontrada."))?;
+    let remote_id = instance.remote_id.as_deref().ok_or_else(|| {
+        AppError::from("Esta instancia no se instaló desde el catálogo (sin mods remotos).")
+    })?;
+
+    crate::remote::sync_mods(
+        &state.http_client,
+        &state.settings.get(),
+        &local_instance_id,
+        remote_id,
+        &state.mod_vault,
+        |_file, _done, _total| {},
+    )
+    .await
+}
+
+/// Admin-only: syncs every installed instance that came from the catalog.
+/// Used by the "Sincronizar Launcher" button to push mods to all local
+/// instances in one go.
+#[tauri::command]
+pub async fn sync_all_protected_mods(
+    account_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<usize> {
+    require_admin(&state, &account_id)?;
+    let instances = state.instances.list();
+    let mut synced = 0usize;
+    for inst in &instances {
+        let Some(remote_id) = inst.remote_id.clone() else {
+            continue;
+        };
+        match crate::remote::sync_mods(
+            &state.http_client,
+            &state.settings.get(),
+            &inst.id,
+            &remote_id,
+            &state.mod_vault,
+            |_file, _done, _total| {},
+        )
+        .await
+        {
+            Ok(_) => synced += 1,
+            Err(e) => tracing::warn!(
+                "sync_all: no se pudo sincronizar mods de {} ({inst}): {e}",
+                inst.name
+            ),
+        }
+    }
+    Ok(synced)
+}
+

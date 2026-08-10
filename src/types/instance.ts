@@ -20,6 +20,8 @@ export interface InstanceConfig {
   /** When true, only the Discord IDs in `allowedDiscordIds` (plus admins) can see this instance once published. */
   whitelistEnabled: boolean;
   allowedDiscordIds: string[];
+  /** Catalog/remote id this local instance was installed from (if any). Used to sync protected mods from the panel. */
+  remoteId?: string;
 }
 
 export interface InstanceDraft

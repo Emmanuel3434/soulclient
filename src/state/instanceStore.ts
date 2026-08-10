@@ -58,6 +58,11 @@ export const useInstanceStore = create<InstanceStoreState>((set, get) => ({
   installRemote: async (id: string, accountId?: string) => {
     const instance = await api.installRemoteInstance(id, accountId);
     set((s) => ({ instances: [...s.instances, instance] }));
+    if (instance.remoteId) {
+      api.syncProtectedMods(instance.id).catch((err) =>
+        console.error("Failed to sync protected mods after install", err)
+      );
+    }
     return instance;
   },
 

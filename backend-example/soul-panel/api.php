@@ -58,7 +58,8 @@ function supabaseRequest($method, $path, $body = null, $extraHeaders = []) {
 // Pide a Supabase Storage una URL firmada para subir el ZIP de una instancia
 // (PUT directo del navegador, válida 2 h, con x-upsert: true para repúblicar).
 function storageSignedUploadUrl($id) {
-  $ch = curl_init(SUPABASE_URL . '/storage/v1/object/upload/sign/' . SUPABASE_BUCKET . '/' . rawurlencode($id) . '.zip');
+  $path = rawurlencode($id) . '.zip';
+  $ch = curl_init(SUPABASE_URL . '/storage/v1/object/upload/sign/' . SUPABASE_BUCKET . '/' . $path);
   curl_setopt_array($ch, [
     CURLOPT_CUSTOMREQUEST => 'POST',
     CURLOPT_HTTPHEADER => [
@@ -82,6 +83,38 @@ function storageSignedUploadUrl($id) {
     throw new Exception('Respuesta de subida inválida');
   }
   // A veces la URL viene relativa al gateway de storage (/storage/v1/...).
+  if (preg_match('#^https?://#', $raw)) return $raw;
+  return SUPABASE_URL . '/storage/v1' . ($raw[0] === '/' ? '' : '/') . $raw;
+}
+
+// URL firmada para subir un mod (.jar) de una instancia a Storage, bajo la
+// ruta `mods/{instance_id}/{file}`. El PUT lo hace el navegador directo.
+function modSignedUploadUrl($instanceId, $fileName) {
+  $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $fileName);
+  $path = 'mods/' . rawurlencode($instanceId) . '/' . rawurlencode($safe);
+  $ch = curl_init(SUPABASE_URL . '/storage/v1/object/upload/sign/' . SUPABASE_BUCKET . '/' . $path);
+  curl_setopt_array($ch, [
+    CURLOPT_CUSTOMREQUEST => 'POST',
+    CURLOPT_HTTPHEADER => [
+      'apikey: ' . SUPABASE_SECRET_KEY,
+      'Authorization: Bearer ' . SUPABASE_SECRET_KEY,
+      'Content-Type: application/json',
+    ],
+    CURLOPT_POSTFIELDS => json_encode(['expiresIn' => 7200]),
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 15,
+  ]);
+  $response = curl_exec($ch);
+  $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  curl_close($ch);
+  if ($response === false || $status >= 400) {
+    throw new Exception('No se pudo iniciar la subida del mod (HTTP ' . $status . ')');
+  }
+  $data = json_decode($response, true);
+  $raw = $data['signedUrl'] ?? $data['signedURL'] ?? $data['url'] ?? null;
+  if (!$raw) {
+    throw new Exception('Respuesta de subida inválida');
+  }
   if (preg_match('#^https?://#', $raw)) return $raw;
   return SUPABASE_URL . '/storage/v1' . ($raw[0] === '/' ? '' : '/') . $raw;
 }
@@ -113,6 +146,20 @@ function instanceRowToRemote($row) {
     'updatedAt' => tsToMs($row['updated_at'] ?? null, tsToMs($row['created_at'] ?? null, 0)),
     'whitelistEnabled' => (bool)($row['whitelist_enabled'] ?? false),
     'allowedDiscordIds' => array_map('strval', (array)($row['allowed_discord_ids'] ?? [])),
+  ];
+}
+
+// Mapea una fila de la tabla `mods` (snake_case) a la forma camelCase que
+// espera el launcher al sincronizar mods protegidos de una instancia.
+function modRowToRemote($row) {
+  return [
+    'id' => (string)($row['id'] ?? ''),
+    'fileName' => (string)($row['file_name'] ?? ''),
+    'storagePath' => (string)($row['storage_path'] ?? ''),
+    'sha1' => (string)($row['sha1'] ?? ''),
+    'sizeBytes' => (int)($row['size_bytes'] ?? 0),
+    'downloadUrl' => (string)($row['download_url'] ?? ''),
+    'source' => (string)($row['source'] ?? 'custom'),
   ];
 }
 
@@ -199,6 +246,15 @@ try {
       echo json_encode(['signedUrl' => storageSignedUploadUrl($id)]);
       break;
 
+    case 'sign_mod_upload':
+      $instanceId = $_GET['instance_id'] ?? '';
+      $file = $_GET['file'] ?? '';
+      if (!$instanceId || !$file) {
+        http_response_code(400); echo json_encode(['error' => 'Faltan instance_id y file']); break;
+      }
+      echo json_encode(['signedUrl' => modSignedUploadUrl($instanceId, $file)]);
+      break;
+
     case 'finalize_publish':
       $data = json_decode(file_get_contents('php://input'), true) ?? [];
       if (!$id) { http_response_code(400); echo json_encode(['error' => 'Falta id']); break; }
@@ -221,6 +277,16 @@ try {
       // `action=rows` con snake_case, así que este no rompe nada.
       $result = supabaseRequest('GET', 'instances?select=*&order=created_at.desc');
       echo json_encode(array_map('instanceRowToRemote', $result['body'] ?? []));
+      break;
+
+    case 'mods':
+      // Lista de mods protegidos de una instancia en formato camelCase para
+      // el launcher (endpoint {base}/instances/{id}/mods). Los mods viven
+      // solo en Supabase Storage; el launcher los descarga e importa
+      // cifrados a su ModVault local (nunca como archivos planos).
+      if (!$id) { http_response_code(400); echo json_encode(['error' => 'Falta id']); break; }
+      $result = supabaseRequest('GET', 'mods?instance_id=eq.' . urlencode($id) . '&select=*&order=created_at.asc');
+      echo json_encode(array_map('modRowToRemote', $result['body'] ?? []));
       break;
 
     case 'download':

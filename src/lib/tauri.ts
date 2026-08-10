@@ -73,6 +73,10 @@ export const api = {
     }),
   removeProtectedMod: (modId: string, accountId?: string) =>
     invoke<void>("remove_protected_mod", { modId, accountId }),
+  syncProtectedMods: (localInstanceId: string) =>
+    invoke<number>("sync_protected_mods", { localInstanceId }),
+  syncAllProtectedMods: (accountId?: string) =>
+    invoke<number>("sync_all_protected_mods", { accountId }),
 
   // ---------- Versions / downloads ----------
   fetchVersionManifest: () => invoke<MinecraftVersion[]>("fetch_version_manifest"),

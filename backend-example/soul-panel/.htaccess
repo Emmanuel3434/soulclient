@@ -13,3 +13,6 @@ RewriteRule ^instances$ api.php?action=catalog [L,QSA]
 
 # GET /instances/{id}/download   -> redirige al ZIP público en Supabase Storage
 RewriteRule ^instances/([^/]+)/download$ api.php?action=download&id=$1 [L,QSA]
+
+# GET /instances/{id}/mods       -> lista de mods protegidos de la instancia
+RewriteRule ^instances/([^/]+)/mods$ api.php?action=mods&id=$1 [L,QSA]

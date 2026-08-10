@@ -67,6 +67,8 @@ fn main() {
             commands::modvault::add_protected_mod,
             commands::modvault::update_protected_mod,
             commands::modvault::remove_protected_mod,
+            commands::modvault::sync_protected_mods,
+            commands::modvault::sync_all_protected_mods,
             // Remote instances (worker + R2 catalog)
             commands::instances::list_remote_instances,
             commands::instances::install_remote_instance,

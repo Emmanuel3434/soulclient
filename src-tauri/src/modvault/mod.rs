@@ -164,6 +164,8 @@ impl ModVault {
             size_bytes: plaintext.len() as u64,
             is_mandatory,
             added_at: chrono::Utc::now().timestamp_millis(),
+            sha1: None,
+            remote_id: None,
         };
 
         let mut data = self.inner.write().unwrap();

@@ -172,6 +172,7 @@ impl InstanceStore {
             total_play_ms: 0,
             whitelist_enabled: draft.whitelist_enabled,
             allowed_discord_ids: draft.allowed_discord_ids,
+            remote_id: None,
         };
 
         let mut data = self.inner.write().unwrap();

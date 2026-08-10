@@ -274,7 +274,6 @@ fn extract_zip(zip_path: &Path, new_instance_id: &str, mut on_file: impl FnMut(S
         let Some(rel) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
             continue;
         };
-        let size = entry.size();
         let (target_root, inner) = if let Ok(p) = rel.strip_prefix("minecraft") {
             (AppPaths::minecraft_root(), p.to_path_buf())
         } else if let Ok(p) = rel.strip_prefix("instance") {
@@ -705,7 +704,7 @@ pub async fn sync_mods(
     let mods = list_mods(client, settings, remote_id).await?;
     let keep_ids: Vec<String> = mods.iter().map(|m| m.id.clone()).collect();
 
-    let mut total: u64 = mods.iter().map(|m| m.size_bytes).sum();
+    let total: u64 = mods.iter().map(|m| m.size_bytes).sum();
     let mut done: u64 = 0;
 
     for m in &mods {

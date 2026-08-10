@@ -134,8 +134,9 @@ pub async fn sync_all_protected_mods(
         {
             Ok(_) => synced += 1,
             Err(e) => tracing::warn!(
-                "sync_all: no se pudo sincronizar mods de {} ({inst}): {e}",
-                inst.name
+                "sync_all: no se pudo sincronizar mods de {} ({}): {e}",
+                inst.name,
+                inst.id
             ),
         }
     }

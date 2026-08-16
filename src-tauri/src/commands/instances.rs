@@ -382,7 +382,7 @@ pub async fn launch_instance(
                 .find(|r| r.name.eq_ignore_ascii_case(&instance.name))
             {
                 mod_sync_remote_id = Some(m.id.clone());
-                if let Ok(mut inst) = state.instances.get(&id) {
+                if let Some(mut inst) = state.instances.get(&id) {
                     inst.remote_id = mod_sync_remote_id.clone();
                     let _ = state.instances.update(inst);
                 }

@@ -155,7 +155,7 @@ async fn flush_op(
                 "allowedDiscordIds": instance.allowed_discord_ids,
                 "createdAt": instance.created_at,
             });
-            if let Some(url) = resolve_cover(client, base, &instance.id, instance.cover_image.as_deref()).await? {
+            if let Some(url) = resolve_cover(client, &base, &instance.id, instance.cover_image.as_deref()).await? {
                 body["coverImage"] = serde_json::json!(url);
             }
             client

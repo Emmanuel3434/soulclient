@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
-import { Plus, ShieldAlert, CloudDownload, Trash2, Lock } from "lucide-react";
+import { Plus, ShieldAlert, CloudDownload, Trash2, Lock, CloudUpload } from "lucide-react";
 import { useInstanceStore } from "@/state/instanceStore";
 import { useAccountStore } from "@/state/accountStore";
 import { useDownloadStore } from "@/state/downloadStore";
@@ -32,6 +32,8 @@ export default function Instances() {
     publish,
     removeRemote,
     subscribeRealtime,
+    pendingSync,
+    refreshSyncStatus,
   } = useInstanceStore();
   const { activeAccount } = useAccountStore();
   const { progress, setProgress } = useDownloadStore();
@@ -47,6 +49,7 @@ export default function Instances() {
   useEffect(() => {
     refresh();
     refreshRemote(activeAccount?.id);
+    refreshSyncStatus();
     const unlisten = api.onDownloadProgress(setProgress);
     // Supabase Realtime: auto-refresh remote instances on INSERT/UPDATE/DELETE
     const unsubscribeRealtime = subscribeRealtime();
@@ -247,6 +250,13 @@ export default function Instances() {
       <div className="flex items-center gap-2 mt-8">
         <h2 className="text-sm font-semibold text-neutral-300">Mis instancias</h2>
       </div>
+
+      {pendingSync > 0 && (
+        <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mt-3">
+          <CloudUpload size={14} className="shrink-0" />
+          {pendingSync} cambio(s) pendiente(s) de sincronizar. Se enviarán automáticamente cuando haya conexión.
+        </div>
+      )}
 
       <div className="grid grid-cols-4 gap-4 mt-3">
         {loading &&

@@ -226,6 +226,51 @@ impl ModVault {
         Ok(entry)
     }
 
+    /// Finds a vault entry by its local vault id.
+    pub fn get(&self, mod_id: &str) -> Option<VaultModEntry> {
+        self.inner
+            .read()
+            .unwrap()
+            .mods
+            .iter()
+            .find(|m| m.id == mod_id)
+            .cloned()
+    }
+
+    /// Decrypts a vault entry back to plaintext bytes (used when pushing an
+    /// admin-added mod to the backend: we hash + upload the original jar
+    /// without ever keeping a second plaintext copy on disk).
+    pub fn read_plaintext(&self, mod_id: &str) -> AppResult<Option<Vec<u8>>> {
+        let path = AppPaths::vault_dir().join(format!("{mod_id}.enc"));
+        let raw = match std::fs::read(&path) {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+        if raw.len() < 12 {
+            return Ok(None);
+        }
+        let (nonce_bytes, ciphertext) = raw.split_at(12);
+        let key = derive_key();
+        let cipher = Aes256Gcm::new(GenericArray::from_slice(&key));
+        let plaintext = cipher
+            .decrypt(GenericArray::from_slice(nonce_bytes), ciphertext)
+            .map_err(|_| AppError::from("No se pudo descifrar el mod de la bóveda."))?;
+        Ok(Some(plaintext))
+    }
+
+    /// After a locally-added mod has been pushed to the backend, stamps its
+    /// sha1 + remote id (which equals the local vault id) so a later
+    /// `sync_mods` pull recognizes it as already published and skips it.
+    pub fn stamp_remote(&self, mod_id: &str, remote_id: &str, sha1: &str) -> AppResult<()> {
+        let mut data = self.inner.write().unwrap();
+        let Some(entry) = data.mods.iter_mut().find(|m| m.id == mod_id) else {
+            return Err(AppError::from("Mod no encontrado en la bóveda."));
+        };
+        entry.remote_id = Some(remote_id.to_string());
+        entry.sha1 = Some(sha1.to_string());
+        self.persist(&data)
+    }
+
     /// Finds a vault entry whose `remote_id` matches the given published mod
     /// id for the given instance. Returns its sha1 too so sync can decide
     /// whether to skip (same hash) or refresh.

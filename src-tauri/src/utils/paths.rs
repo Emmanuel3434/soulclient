@@ -122,6 +122,13 @@ impl AppPaths {
         Self::launcher_root().join("instances.json")
     }
 
+    /// Persisted offline-first sync queue: local CRUD ops (instance/mod
+    /// upserts and deletes) that still need to be flushed to the backend.
+    /// Survives restarts so nothing is lost while offline.
+    pub fn sync_queue_file() -> PathBuf {
+        Self::launcher_root().join("sync_queue.json")
+    }
+
     pub fn settings_file() -> PathBuf {
         Self::launcher_root().join("settings.json")
     }

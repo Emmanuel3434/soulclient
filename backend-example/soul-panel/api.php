@@ -8,6 +8,25 @@ $KNOWN_TABLES = [
   'whitelist', 'access_codes', 'code_redemptions', 'news', 'admins',
 ];
 
+// Guard para las acciones de sincronización del launcher (sync_*). Mutan
+// filas de Supabase, así que requieren el mismo publish token que usa el
+// launcher para publicar instancias. Si SOULCLIENT_PUBLISH_TOKEN está vacío
+// la verificación se omite para no romper despliegues existentes.
+function checkSyncToken() {
+  $configured = SOULCLIENT_PUBLISH_TOKEN;
+  if ($configured === '') return;
+  $token = $_GET['token'] ?? '';
+  $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+  if (preg_match('/^Bearer\s+(.+)$/i', $authHeader, $m)) {
+    $token = trim($m[1]);
+  }
+  if (!hash_equals($configured, $token)) {
+    http_response_code(401);
+    echo json_encode(['error' => 'Token de publicación inválido']);
+    exit;
+  }
+}
+
 function supabaseRequest($method, $path, $body = null, $extraHeaders = []) {
   $ch = curl_init(SUPABASE_URL . '/rest/v1/' . $path);
   $headers = array_merge([
@@ -264,7 +283,12 @@ try {
       if (!$instanceId || !$file) {
         http_response_code(400); echo json_encode(['error' => 'Faltan instance_id y file']); break;
       }
-      echo json_encode(['signedUrl' => modSignedUploadUrl($instanceId, $file)]);
+      $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $file);
+      echo json_encode([
+        'signedUrl' => modSignedUploadUrl($instanceId, $safe),
+        'path' => 'mods/' . $instanceId . '/' . $safe,
+        'publicUrl' => SUPABASE_URL . '/storage/v1/object/public/' . SUPABASE_BUCKET . '/mods/' . $instanceId . '/' . $safe,
+      ]);
       break;
 
     case 'sign_cover_upload':
@@ -277,6 +301,7 @@ try {
       echo json_encode([
         'signedUrl' => coverSignedUploadUrl($instanceId, $file),
         'path' => 'covers/' . $instanceId . '/' . $safe,
+        'publicUrl' => SUPABASE_URL . '/storage/v1/object/public/' . SUPABASE_BUCKET . '/covers/' . $instanceId . '/' . $safe,
       ]);
       break;
 
@@ -327,6 +352,84 @@ try {
       }
       header('Location: ' . SUPABASE_URL . '/storage/v1/object/public/' . SUPABASE_BUCKET . '/' . rawurlencode($id) . '.zip', true, 302);
       exit;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Sincronización local-first del launcher (offline-first): el launcher
+    // aplica el cambio localmente y lo encola; estas acciones lo envían al
+    // backend (Supabase) cuando hay conexión. Los jugadores se enteran vía
+    // Supabase Realtime y refrescan solos.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    case 'sync_upsert_instance':
+      checkSyncToken();
+      $data = json_decode(file_get_contents('php://input'), true) ?? [];
+      if (empty($data['id'])) { http_response_code(400); echo json_encode(['error' => 'Falta id']); break; }
+      $now = gmdate('Y-m-d\TH:i:s\Z');
+      $row = [
+        'name' => (string)($data['name'] ?? ''),
+        'version' => (string)($data['version'] ?? ''),
+        'modloader' => (string)($data['loader'] ?? 'vanilla'),
+        'modloader_version' => $data['loaderVersion'] ?? null,
+        'whitelist_enabled' => (bool)($data['whitelistEnabled'] ?? false),
+        'allowed_discord_ids' => $data['allowedDiscordIds'] ?? [],
+        'logo_path' => $data['coverImage'] ?? null,
+        'updated_at' => $now,
+      ];
+      // Si la instancia ya existe solo actualizamos (sin tocar created_at ni
+      // published_at); si no, la creamos.
+      $prev = supabaseRequest('GET', 'instances?id=eq.' . urlencode($data['id']));
+      if (empty($prev['body'])) {
+        $row['id'] = (string)$data['id'];
+        $row['created_at'] = isset($data['createdAt'])
+          ? gmdate('Y-m-d\TH:i:s\Z', (int)floor((int)$data['createdAt'] / 1000))
+          : $now;
+        $result = supabaseRequest('POST', 'instances', (object)$row, ['Prefer: return=representation']);
+      } else {
+        $result = supabaseRequest('PATCH', 'instances?id=eq.' . urlencode($data['id']), (object)$row, ['Prefer: return=representation']);
+      }
+      echo json_encode(['ok' => true, 'row' => $result['body'][0] ?? null]);
+      break;
+
+    case 'sync_delete_instance':
+      checkSyncToken();
+      if (!$id) { http_response_code(400); echo json_encode(['error' => 'Falta id']); break; }
+      supabaseRequest('DELETE', 'instances?id=eq.' . urlencode($id));
+      echo json_encode(['ok' => true]);
+      break;
+
+    case 'sync_upsert_mod':
+      checkSyncToken();
+      $data = json_decode(file_get_contents('php://input'), true) ?? [];
+      if (empty($data['id']) || empty($data['instanceId'])) {
+        http_response_code(400); echo json_encode(['error' => 'Faltan id e instanceId']); break;
+      }
+      $row = [
+        'instance_id' => (string)$data['instanceId'],
+        'file_name' => (string)($data['fileName'] ?? ''),
+        'storage_path' => $data['storagePath'] ?? null,
+        'sha1' => (string)($data['sha1'] ?? ''),
+        'size_bytes' => (int)($data['sizeBytes'] ?? 0),
+        'download_url' => (string)($data['downloadUrl'] ?? ''),
+        'source' => (string)($data['source'] ?? 'custom'),
+        'is_mandatory' => (bool)($data['isMandatory'] ?? true),
+      ];
+      $prev = supabaseRequest('GET', 'mods?id=eq.' . urlencode($data['id']));
+      if (empty($prev['body'])) {
+        $row['id'] = (string)$data['id'];
+        $row['created_at'] = gmdate('Y-m-d\TH:i:s\Z');
+        $result = supabaseRequest('POST', 'mods', (object)$row, ['Prefer: return=representation']);
+      } else {
+        $result = supabaseRequest('PATCH', 'mods?id=eq.' . urlencode($data['id']), (object)$row, ['Prefer: return=representation']);
+      }
+      echo json_encode(['ok' => true, 'row' => $result['body'][0] ?? null]);
+      break;
+
+    case 'sync_delete_mod':
+      checkSyncToken();
+      if (!$id) { http_response_code(400); echo json_encode(['error' => 'Falta id']); break; }
+      supabaseRequest('DELETE', 'mods?id=eq.' . urlencode($id));
+      echo json_encode(['ok' => true]);
+      break;
 
     default:
       http_response_code(400);

@@ -115,5 +115,11 @@ export const api = {
   // ---------- Events ----------
   onDownloadProgress: (cb: (p: DownloadProgress) => void): Promise<UnlistenFn> =>
     listen<DownloadProgress>("download://progress", (e) => cb(e.payload)),
+
+  // ---------- Offline-first sync queue ----------
+  flushSyncQueue: () => invoke<number>("flush_sync_queue"),
+  getSyncQueueStatus: () => invoke<number>("get_sync_queue_status"),
+  onSyncQueueChanged: (cb: (pending: number) => void): Promise<UnlistenFn> =>
+    listen<{ pending: number }>("sync://queue", (e) => cb(e.payload.pending)),
 };
 

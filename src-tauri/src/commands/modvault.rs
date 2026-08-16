@@ -1,8 +1,9 @@
 use super::AppState;
 use crate::auth::is_admin_account;
 use crate::modvault::VaultModEntry;
+use crate::sync::{self, SyncOp};
 use crate::utils::{AppError, AppResult};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 fn require_admin(state: &State<'_, AppState>, account_id: &str) -> AppResult<()> {
     let account = state
@@ -32,49 +33,86 @@ pub fn list_protected_mods(
 }
 
 #[tauri::command]
-pub fn add_protected_mod(
+pub async fn add_protected_mod(
     instance_id: String,
     source_path: String,
     custom_name: Option<String>,
     custom_version: Option<String>,
     is_mandatory: Option<bool>,
     account_id: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<VaultModEntry> {
     require_admin(&state, &account_id)?;
-    state.mod_vault.add(
+    let entry = state.mod_vault.add(
         &instance_id,
         std::path::Path::new(&source_path),
         custom_name,
         custom_version,
         is_mandatory.unwrap_or(true),
-    )
+    )?;
+    // Push instance-bound mods to the backend (offline-first): players with
+    // the instance installed pick it up via Supabase Realtime + sync_mods.
+    if SyncOp::is_instance_bound(&instance_id) {
+        let _ = sync::enqueue(
+            &state,
+            SyncOp::UpsertMod {
+                instance_id,
+                mod_id: entry.id.clone(),
+                remote_id: entry.id.clone(),
+            },
+        );
+        let _ = sync::flush(&state, Some(&app)).await;
+    }
+    Ok(entry)
 }
 
 #[tauri::command]
-pub fn update_protected_mod(
+pub async fn update_protected_mod(
     mod_id: String,
     source_path: Option<String>,
     version: Option<String>,
     is_mandatory: Option<bool>,
     account_id: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<VaultModEntry> {
     require_admin(&state, &account_id)?;
     let src = source_path.as_ref().map(std::path::Path::new);
-    state
-        .mod_vault
-        .update(&mod_id, src, version, is_mandatory)
+    let entry = state.mod_vault.update(&mod_id, src, version, is_mandatory)?;
+    if SyncOp::is_instance_bound(&entry.instance_id) {
+        let remote_id = entry.remote_id.clone().unwrap_or_else(|| entry.id.clone());
+        let _ = sync::enqueue(
+            &state,
+            SyncOp::UpsertMod {
+                instance_id: entry.instance_id.clone(),
+                mod_id,
+                remote_id,
+            },
+        );
+        let _ = sync::flush(&state, Some(&app)).await;
+    }
+    Ok(entry)
 }
 
 #[tauri::command]
-pub fn remove_protected_mod(
+pub async fn remove_protected_mod(
     mod_id: String,
     account_id: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<()> {
     require_admin(&state, &account_id)?;
-    state.mod_vault.remove(&mod_id)
+    let entry = state.mod_vault.get(&mod_id);
+    state.mod_vault.remove(&mod_id)?;
+    if let Some(entry) = entry {
+        if SyncOp::is_instance_bound(&entry.instance_id) {
+            let remote_id = entry.remote_id.clone().unwrap_or(entry.id);
+            let _ = sync::enqueue(&state, SyncOp::DeleteMod { id: remote_id });
+            let _ = sync::flush(&state, Some(&app)).await;
+        }
+    }
+    Ok(())
 }
 
 /// Syncs the protected mods published for an installed instance into the

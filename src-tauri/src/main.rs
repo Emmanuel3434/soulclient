@@ -12,6 +12,7 @@ mod presence;
 mod remote;
 mod settings;
 mod skins;
+mod sync;
 mod updater;
 mod utils;
 
@@ -33,6 +34,20 @@ fn main() {
             // closed/missing Discord client never delays or blocks startup.
             let presence = app.state::<AppState>().discord_presence.clone();
             std::thread::spawn(move || presence.set_idle());
+
+            // Offline-first sync: retry the persisted queue in the
+            // background every 30 s. The queue is also flushed right after
+            // each mutation and whenever the frontend notices Supabase
+            // Realtime reconnecting, so this loop is just the safety net for
+            // connectivity returning while the launcher is idle.
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    let state = app_handle.state::<AppState>();
+                    let _ = crate::sync::flush(&state, Some(&app_handle)).await;
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -84,6 +99,9 @@ fn main() {
             commands::settings::clear_cache,
             commands::settings::open_launcher_folder,
             commands::settings::check_for_updates,
+            // Offline-first sync queue
+            commands::sync::flush_sync_queue,
+            commands::sync::get_sync_queue_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SoulClient");

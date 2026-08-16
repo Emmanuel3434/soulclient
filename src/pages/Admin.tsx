@@ -30,7 +30,7 @@ import type { VaultModEntry } from "@/types/modvault";
 
 export default function Admin() {
   const { activeAccount } = useAccountStore();
-  const { instances, refresh: refreshInstances } = useInstanceStore();
+  const { instances, refresh: refreshInstances, pendingSync, refreshSyncStatus } = useInstanceStore();
   const { session, userProfile } = useDiscordStore();
   const isAdmin =
     !!activeAccount?.isAdmin ||
@@ -93,6 +93,7 @@ export default function Admin() {
     fetchMods();
     fetchNews();
     refreshInstances();
+    refreshSyncStatus();
   }, []);
 
   const handleCreateNews = async () => {
@@ -452,6 +453,13 @@ export default function Admin() {
                 {mods.length} {mods.length === 1 ? "mod registrado" : "mods registrados"}
               </span>
             </div>
+
+            {pendingSync > 0 && (
+              <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mb-3">
+                <UploadCloud size={14} className="shrink-0" />
+                {pendingSync} cambio(s) pendiente(s) de subir al servidor. Se enviarán automáticamente cuando haya conexión.
+              </div>
+            )}
 
             {loading ? (
               <div className="flex-1 flex items-center justify-center">

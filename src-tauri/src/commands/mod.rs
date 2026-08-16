@@ -4,6 +4,7 @@ pub mod discord;
 pub mod instances;
 pub mod modvault;
 pub mod settings;
+pub mod sync;
 pub mod versions;
 
 use crate::auth::{discord::DiscordLoginFlow, AccountStore, DiscordSessionStore};
@@ -32,6 +33,8 @@ pub struct AppState {
     /// because it needs to be cloned into the background thread that
     /// waits for a launched Minecraft process to exit.
     pub discord_presence: Arc<DiscordPresence>,
+    /// Persisted offline-first sync queue (see `crate::sync`).
+    pub sync_queue: crate::sync::SyncQueue,
 }
 
 impl AppState {
@@ -49,6 +52,7 @@ impl AppState {
             discord_session: DiscordSessionStore::load(),
             discord_flow: DiscordLoginFlow::default(),
             discord_presence: Arc::new(DiscordPresence::new()),
+            sync_queue: crate::sync::SyncQueue::load(),
         }
     }
 }

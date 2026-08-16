@@ -142,7 +142,7 @@ pub struct RemoteMod {
 
 /// The instance API lives on the same worker as the Discord backend, so the
 /// base URL is derived from `discord_token_exchange_url` (no new setting).
-fn api_base(settings: &LauncherSettings) -> AppResult<String> {
+pub(crate) fn api_base(settings: &LauncherSettings) -> AppResult<String> {
     let raw = settings.discord_token_exchange_url.trim();
     if raw.is_empty() {
         return Err(AppError::from(
@@ -154,7 +154,7 @@ fn api_base(settings: &LauncherSettings) -> AppResult<String> {
     Ok(url.origin().ascii_serialization())
 }
 
-fn publish_token(settings: &LauncherSettings) -> AppResult<String> {
+pub(crate) fn publish_token(settings: &LauncherSettings) -> AppResult<String> {
     let token = settings.publish_token.trim().to_string();
     if token.is_empty() {
         return Err(AppError::from(

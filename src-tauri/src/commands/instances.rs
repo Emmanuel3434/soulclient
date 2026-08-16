@@ -75,9 +75,10 @@ fn adopt_cover_image(instance_id: &str, cover_image: Option<String>) -> AppResul
 }
 
 #[tauri::command]
-pub fn create_instance(
+pub async fn create_instance(
     mut draft: InstanceDraft,
     account_id: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<InstanceConfig> {
     require_admin(&state, &account_id)?;
@@ -87,24 +88,51 @@ pub fn create_instance(
     // untouched.
     let id = uuid::Uuid::new_v4().to_string();
     draft.cover_image = adopt_cover_image(&id, draft.cover_image)?;
-    state.instances.create_with_id(id, draft)
+    let instance = state.instances.create_with_id(id, draft)?;
+    // Local-first sync: the instance appears immediately, and its metadata
+    // is pushed to the catalog (offline-safe, queued).
+    let _ = crate::sync::enqueue(
+        &state,
+        crate::sync::SyncOp::UpsertInstance {
+            instance: instance.clone(),
+        },
+    );
+    let _ = crate::sync::flush(&state, Some(&app)).await;
+    Ok(instance)
 }
 
 #[tauri::command]
-pub fn update_instance(
+pub async fn update_instance(
     mut instance: InstanceConfig,
     account_id: String,
+    app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<InstanceConfig> {
     require_admin(&state, &account_id)?;
     instance.cover_image = adopt_cover_image(&instance.id, instance.cover_image)?;
-    state.instances.update(instance)
+    let updated = state.instances.update(instance)?;
+    let _ = crate::sync::enqueue(
+        &state,
+        crate::sync::SyncOp::UpsertInstance {
+            instance: updated.clone(),
+        },
+    );
+    let _ = crate::sync::flush(&state, Some(&app)).await;
+    Ok(updated)
 }
 
 #[tauri::command]
-pub fn delete_instance(id: String, account_id: String, state: State<'_, AppState>) -> AppResult<()> {
+pub async fn delete_instance(
+    id: String,
+    account_id: String,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<()> {
     require_admin(&state, &account_id)?;
-    state.instances.delete(&id)
+    state.instances.delete(&id)?;
+    let _ = crate::sync::enqueue(&state, crate::sync::SyncOp::DeleteInstance { id });
+    let _ = crate::sync::flush(&state, Some(&app)).await;
+    Ok(())
 }
 
 /// Downloads everything required for an instance's Minecraft version

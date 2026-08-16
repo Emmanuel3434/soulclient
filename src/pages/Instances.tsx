@@ -34,6 +34,8 @@ export default function Instances() {
     subscribeRealtime,
     pendingSync,
     refreshSyncStatus,
+    syncInstalledMods,
+    lastModSync,
   } = useInstanceStore();
   const { activeAccount } = useAccountStore();
   const { progress, setProgress } = useDownloadStore();
@@ -47,7 +49,13 @@ export default function Instances() {
   const isAdmin = !!activeAccount?.isAdmin;
 
   useEffect(() => {
-    refresh();
+    (async () => {
+      await refresh();
+      // Re-sincroniza los mods publicados para cada instancia instalada del
+      // catálogo: así el jugador recibe los mods que el admin subió desde el
+      // panel aunque el launcher estuviera cerrado cuando se publicaron.
+      await syncInstalledMods();
+    })();
     refreshRemote(activeAccount?.id);
     refreshSyncStatus();
     const unlisten = api.onDownloadProgress(setProgress);
@@ -275,6 +283,7 @@ export default function Instances() {
               setModalOpen(true);
             }}
             onPublish={isAdmin ? () => handlePublish(instance) : undefined}
+            syncResult={lastModSync[instance.id]}
           />
         ))}
       </div>

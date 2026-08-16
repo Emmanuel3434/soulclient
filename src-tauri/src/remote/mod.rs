@@ -140,6 +140,16 @@ pub struct RemoteMod {
     pub is_mandatory: bool,
 }
 
+/// Result of syncing protected mods into the local ModVault.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncModsResult {
+    pub total_bytes: u64,
+    pub added: usize,
+    pub updated: usize,
+    pub pruned: usize,
+}
+
 /// The instance API lives on the same worker as the Discord backend, so the
 /// base URL is derived from `discord_token_exchange_url` (no new setting).
 pub(crate) fn api_base(settings: &LauncherSettings) -> AppResult<String> {
@@ -706,12 +716,14 @@ pub async fn sync_mods(
     remote_id: &str,
     vault: &crate::modvault::ModVault,
     mut on_file: impl FnMut(String, u64, u64),
-) -> AppResult<u64> {
+) -> AppResult<SyncModsResult> {
     let mods = list_mods(client, settings, remote_id).await?;
     let keep_ids: Vec<String> = mods.iter().map(|m| m.id.clone()).collect();
 
     let total: u64 = mods.iter().map(|m| m.size_bytes).sum();
     let mut done: u64 = 0;
+    let mut added: usize = 0;
+    let mut updated: usize = 0;
 
     for m in &mods {
         if let Some(existing) = vault.find_by_remote(instance_id, &m.id) {
@@ -720,6 +732,7 @@ pub async fn sync_mods(
                 // Same file, but the panel may have toggled the mandatory flag.
                 if existing.is_mandatory != m.is_mandatory {
                     vault.update(&existing.id, None, Some(existing.version.clone()), Some(m.is_mandatory))?;
+                    updated += 1;
                 }
                 done += m.size_bytes;
                 on_file(m.file_name.clone(), done, total);
@@ -758,14 +771,20 @@ pub async fn sync_mods(
 
         vault.add_remote(instance_id, &tmp, &m.file_name, &local_sha, &m.id, m.is_mandatory)?;
         let _ = std::fs::remove_file(&tmp);
+        added += 1;
         done += bytes.len() as u64;
         on_file(m.file_name.clone(), done, total);
     }
 
     let pruned = vault.prune_remote(instance_id, &keep_ids)?;
     tracing::info!(
-        "sync_mods: instance={instance_id} remote={remote_id} mods={} pruned={pruned}",
+        "sync_mods: instance={instance_id} remote={remote_id} mods={} added={added} updated={updated} pruned={pruned}",
         mods.len()
     );
-    Ok(total)
+    Ok(SyncModsResult {
+        total_bytes: total,
+        added,
+        updated,
+        pruned,
+    })
 }

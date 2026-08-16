@@ -3,6 +3,7 @@ import { Loader2, Lock, Play, Settings2, Upload } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { InstanceConfig } from "@/types/instance";
 import type { DownloadProgress } from "@/types/download";
+import type { ModSyncResult } from "@/types/modvault";
 
 interface InstanceCardProps {
   instance: InstanceConfig;
@@ -11,6 +12,7 @@ interface InstanceCardProps {
   onPlay: () => void;
   onEdit: () => void;
   onPublish?: () => void;
+  syncResult?: ModSyncResult;
 }
 
 const LOADER_LABEL: Record<InstanceConfig["loader"], string> = {
@@ -18,8 +20,9 @@ const LOADER_LABEL: Record<InstanceConfig["loader"], string> = {
   fabric: "Fabric",
 };
 
-export default function InstanceCard({ instance, progress, canManage, onPlay, onEdit, onPublish }: InstanceCardProps) {
+export default function InstanceCard({ instance, progress, canManage, onPlay, onEdit, onPublish, syncResult }: InstanceCardProps) {
   const downloading = !!progress && progress.stage !== "done" && progress.stage !== "error";
+  const newMods = syncResult ? syncResult.added + syncResult.updated : 0;
   const coverSrc = instance.coverImage
     ? /^https?:\/\//.test(instance.coverImage)
       ? instance.coverImage
@@ -47,6 +50,15 @@ export default function InstanceCard({ instance, progress, canManage, onPlay, on
               >
                 <Lock size={9} />
                 Whitelist
+              </span>
+            )}
+            {newMods > 0 && (
+              <span
+                title="El administrador publicó mods nuevos para esta instancia"
+                className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 border border-emerald-500/30 text-emerald-400"
+              >
+                <Upload size={9} />
+                {newMods} mod{newMods !== 1 ? "s" : ""} nuevo{newMods !== 1 ? "s" : ""}
               </span>
             )}
           </div>

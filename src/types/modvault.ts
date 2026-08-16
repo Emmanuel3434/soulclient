@@ -8,3 +8,10 @@ export interface VaultModEntry {
   isMandatory: boolean;
   addedAt: number;
 }
+
+export interface ModSyncResult {
+  totalBytes: number;
+  added: number;
+  updated: number;
+  pruned: number;
+}

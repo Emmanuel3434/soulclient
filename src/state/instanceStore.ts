@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { api } from "@/lib/tauri";
 import { supabase } from "@/lib/supabase";
 import type { InstanceConfig, InstanceDraft, RemoteInstance } from "@/types/instance";
+import type { ModSyncResult } from "@/types/modvault";
 
 interface InstanceStoreState {
   instances: InstanceConfig[];
@@ -9,8 +10,10 @@ interface InstanceStoreState {
   remoteInstances: RemoteInstance[];
   remoteLoading: boolean;
   realtimeActive: boolean;
-  /** Mutations que todavía no se han enviado al backend (modo offline). */
+  /** Mutaciones que todavía no se han enviado al backend (modo offline). */
   pendingSync: number;
+  /** Resultado del último sync de mods protegidos por instancia local. */
+  lastModSync: Record<string, ModSyncResult>;
   refresh: () => Promise<void>;
   refreshRemote: (accountId?: string) => Promise<void>;
   installRemote: (id: string, accountId?: string) => Promise<InstanceConfig>;
@@ -22,6 +25,8 @@ interface InstanceStoreState {
   flushSyncQueue: () => Promise<void>;
   refreshSyncStatus: () => Promise<void>;
   subscribeRealtime: () => () => void;
+  syncInstanceMods: (localInstanceId: string) => Promise<void>;
+  syncInstalledMods: () => Promise<void>;
 }
 
 /**
@@ -37,6 +42,7 @@ export const useInstanceStore = create<InstanceStoreState>((set, get) => ({
   remoteLoading: false,
   realtimeActive: false,
   pendingSync: 0,
+  lastModSync: {},
 
   refresh: async () => {
     set({ loading: true });
@@ -64,9 +70,7 @@ export const useInstanceStore = create<InstanceStoreState>((set, get) => ({
     const instance = await api.installRemoteInstance(id, accountId);
     set((s) => ({ instances: [...s.instances, instance] }));
     if (instance.remoteId) {
-      api.syncProtectedMods(instance.id).catch((err) =>
-        console.error("Failed to sync protected mods after install", err)
-      );
+      get().syncInstanceMods(instance.id);
     }
     return instance;
   },
@@ -157,9 +161,7 @@ export const useInstanceStore = create<InstanceStoreState>((set, get) => ({
       if (!remoteInstanceId) return;
       const local = get().instances.find((i) => i.remoteId === remoteInstanceId);
       if (local) {
-        api.syncProtectedMods(local.id).catch((err) =>
-          console.error("Failed to sync protected mods after realtime change", err)
-        );
+        get().syncInstanceMods(local.id);
       }
     };
 
@@ -225,5 +227,32 @@ export const useInstanceStore = create<InstanceStoreState>((set, get) => ({
       set({ realtimeActive: false });
       unlistenSync?.();
     };
+  },
+
+  /**
+   * Sincroniza los mods protegidos de una instancia local con el backend y
+   * guarda el resultado para mostrar el badge de actualización en la tarjeta.
+   */
+  syncInstanceMods: async (localInstanceId: string) => {
+    try {
+      const result = await api.syncProtectedMods(localInstanceId);
+      set((s) => ({ lastModSync: { ...s.lastModSync, [localInstanceId]: result } }));
+    } catch (err) {
+      console.error("Failed to sync protected mods", err);
+    }
+  },
+
+  /**
+   * Re-sincroniza los mods protegidos de todas las instancias instaladas que
+   * vienen del catálogo. Corre al abrir la pestaña de instancias, así los
+   * jugadores reciben los mods que el admin subió desde el panel aunque el
+   * launcher no estuviera abierto cuando se publicaron (el Realtime solo
+   * cubre el momento en vivo).
+   */
+  syncInstalledMods: async () => {
+    const localInstances = get().instances.filter((i) => i.remoteId);
+    for (const inst of localInstances) {
+      await get().syncInstanceMods(inst.id);
+    }
   },
 }));

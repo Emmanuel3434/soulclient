@@ -125,7 +125,7 @@ pub async fn remove_protected_mod(
 pub async fn sync_protected_mods(
     local_instance_id: String,
     state: State<'_, AppState>,
-) -> AppResult<u64> {
+) -> AppResult<crate::remote::SyncModsResult> {
     let instance = state
         .instances
         .get(&local_instance_id)

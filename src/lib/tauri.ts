@@ -6,7 +6,7 @@ import type { LauncherSettings } from "@/types/settings";
 import type { MinecraftVersion } from "@/types/version";
 import type { DownloadProgress } from "@/types/download";
 import type { DiscordSession } from "@/types/discord";
-import type { VaultModEntry } from "@/types/modvault";
+import type { VaultModEntry, ModSyncResult } from "@/types/modvault";
 
 /**
  * Thin wrapper around every Tauri command exposed by the Rust backend.
@@ -74,7 +74,7 @@ export const api = {
   removeProtectedMod: (modId: string, accountId?: string) =>
     invoke<void>("remove_protected_mod", { modId, accountId }),
   syncProtectedMods: (localInstanceId: string) =>
-    invoke<number>("sync_protected_mods", { localInstanceId }),
+    invoke<ModSyncResult>("sync_protected_mods", { localInstanceId }),
   syncAllProtectedMods: (accountId?: string) =>
     invoke<number>("sync_all_protected_mods", { accountId }),
 

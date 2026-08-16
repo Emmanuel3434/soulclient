@@ -74,10 +74,33 @@ function supabaseRequest($method, $path, $body = null, $extraHeaders = []) {
   return ['body' => $decoded, 'total' => $total];
 }
 
+// Elimina un objeto del bucket (ignora 404). Supabase devuelve 400 si se
+// intenta firmar una URL de subida para un objeto que ya existe, así que
+// antes de firmar siempre borramos el destino (la subida real usa PUT con
+// x-upsert: true, así que es seguro: crea el objeto nuevo al instante).
+function storageDeleteObject($path) {
+  $ch = curl_init(SUPABASE_URL . '/storage/v1/object/' . SUPABASE_BUCKET . '/' . $path);
+  curl_setopt_array($ch, [
+    CURLOPT_CUSTOMREQUEST => 'DELETE',
+    CURLOPT_HTTPHEADER => [
+      'apikey: ' . SUPABASE_SECRET_KEY,
+      'Authorization: Bearer ' . SUPABASE_SECRET_KEY,
+    ],
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 15,
+  ]);
+  curl_exec($ch);
+  $status = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+  curl_close($ch);
+  // 200/204 = borrado; 404 = no existía (también vale).
+  return $status === 200 || $status === 204 || $status === 404;
+}
+
 // Pide a Supabase Storage una URL firmada para subir el ZIP de una instancia
 // (PUT directo del navegador, válida 2 h, con x-upsert: true para repúblicar).
 function storageSignedUploadUrl($id) {
   $path = rawurlencode($id) . '.zip';
+  storageDeleteObject($path);
   $ch = curl_init(SUPABASE_URL . '/storage/v1/object/upload/sign/' . SUPABASE_BUCKET . '/' . $path);
   curl_setopt_array($ch, [
     CURLOPT_CUSTOMREQUEST => 'POST',
@@ -121,6 +144,7 @@ function coverSignedUploadUrl($instanceId, $fileName) {
 function storageSignedUploadUrlFor($folder, $instanceId, $fileName) {
   $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', $fileName);
   $path = $folder . '/' . rawurlencode($instanceId) . '/' . rawurlencode($safe);
+  storageDeleteObject($path);
   $ch = curl_init(SUPABASE_URL . '/storage/v1/object/upload/sign/' . SUPABASE_BUCKET . '/' . $path);
   curl_setopt_array($ch, [
     CURLOPT_CUSTOMREQUEST => 'POST',

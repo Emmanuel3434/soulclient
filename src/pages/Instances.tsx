@@ -43,23 +43,16 @@ export default function Instances() {
   const [editing, setEditing] = useState<InstanceConfig | undefined>(undefined);
   const [launchingInstance, setLaunchingInstance] = useState<InstanceConfig | null>(null);
 
-  // Igual que en App.tsx/Sidebar.tsx: `isAdmin` viene del backend (cuenta
-  // Premium + lista de admins), que es lo mismo que ya exige cada comando
-  // sensible en Rust — no del rol de Discord/Supabase.
   const isAdmin = !!activeAccount?.isAdmin;
 
   useEffect(() => {
     (async () => {
       await refresh();
-      // Re-sincroniza los mods publicados para cada instancia instalada del
-      // catálogo: así el jugador recibe los mods que el admin subió desde el
-      // panel aunque el launcher estuviera cerrado cuando se publicaron.
       await syncInstalledMods();
     })();
     refreshRemote(activeAccount?.id);
     refreshSyncStatus();
     const unlisten = api.onDownloadProgress(setProgress);
-    // Supabase Realtime: auto-refresh remote instances on INSERT/UPDATE/DELETE
     const unsubscribeRealtime = subscribeRealtime();
     return () => {
       unlisten.then((fn) => fn());
@@ -77,7 +70,6 @@ export default function Instances() {
     await update({ ...editing, ...draft }, activeAccount.id);
   };
 
-  // Abre la pantalla de lanzamiento
   const handlePlay = (instance: InstanceConfig) => {
     if (!activeAccount) {
       alert("Selecciona o crea una cuenta antes de jugar.");
@@ -86,7 +78,6 @@ export default function Instances() {
     setLaunchingInstance(instance);
   };
 
-  // Esta función es la que realmente llama al backend
   const doLaunch = async (instance: InstanceConfig) => {
     await api.ensureVersionInstalled(instance.id);
     await api.launchInstance(instance.id, activeAccount!.id);
@@ -123,6 +114,15 @@ export default function Instances() {
     }
   };
 
+  // Instances locales que NO están en el catálogo remoto (creadas manualmente)
+  const localOnlyInstances = instances.filter(
+    (inst) => !remoteInstances.some((r) => r.name === inst.name && r.version === inst.version)
+  );
+
+  // Para cada remota, verificar si ya está instalada localmente
+  const findLocalForRemote = (remote: RemoteInstance) =>
+    instances.find((i) => i.name === remote.name && i.version === remote.version);
+
   return (
     <div className="flex-1 overflow-y-auto p-8">
       <div className="flex items-center justify-between">
@@ -155,123 +155,118 @@ export default function Instances() {
         </div>
       )}
 
-      {/* Remote catalog */}
-      <div className="mt-6">
-        <div className="flex items-center gap-2">
-          <CloudDownload size={16} className="text-neutral-400" />
-          <h2 className="text-sm font-semibold text-neutral-300">Catálogo de Instancias Remotas</h2>
-          <span className="text-xs text-neutral-500">({remoteInstances.length})</span>
-        </div>
-
-        <div className="grid grid-cols-4 gap-4 mt-3">
-          {remoteLoading && remoteInstances.length === 0 &&
-            Array.from({ length: 4 }).map((_, i) => <InstanceCardSkeleton key={i} />)}
-
-          {remoteInstances.map((remote) => {
-            const p = progress[`remote:${remote.id}`];
-            const busy = !!p && p.stage !== "done" && p.stage !== "error";
-            const installed = instances.some((i) => i.name === remote.name && i.version === remote.version);
-            return (
-              <div
-                key={remote.id}
-                className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col"
-              >
-                <div className="h-24 w-full bg-gradient-to-br from-accent/30 to-violet-600/20 bg-cover bg-center"
-                  style={
-                    remote.coverImage
-                      ? {
-                          backgroundImage: `url(${remote.coverImage})`,
-                        }
-                      : undefined
-                  }
-                />
-                <div className="p-3 flex flex-col gap-2 flex-1">
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm font-semibold truncate">{remote.name}</p>
-                      {isAdmin && remote.whitelistEnabled && (
-                        <span
-                          title={`Solo visible para: ${remote.allowedDiscordIds.join(", ") || "nadie"}`}
-                          className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-400"
-                        >
-                          <Lock size={9} />
-                          Whitelist
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-neutral-500">
-                      {remote.version} · {remote.loader === "fabric" ? "Fabric" : "Vanilla"} ·{" "}
-                      {formatBytes(remote.sizeBytes)} · {remote.downloads} descargas
-                    </p>
-                  </div>
-
-                  {busy ? (
-                    <div className="mt-auto">
-                      <div className="w-full h-1.5 bg-bg rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-accent-soft transition-[width] duration-200"
-                          style={{
-                            width:
-                              p.totalBytes > 0
-                                ? Math.min(100, (p.downloadedBytes / p.totalBytes) * 100)
-                                : 0,
-                          }}
-                        />
-                      </div>
-                      <p className="text-[10px] text-neutral-500 mt-1 truncate">{p.log}</p>
-                    </div>
-                  ) : (
-                    <div className="mt-auto flex items-center gap-2">
-                      <button
-                        onClick={() => handleInstallRemote(remote)}
-                        disabled={installed}
-                        className="flex-1 h-8 rounded-md bg-accent hover:bg-accent/80 disabled:bg-bg-hover disabled:text-neutral-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <CloudDownload size={12} />
-                        {installed ? "Instalada" : "Instalar"}
-                      </button>
-                      {isAdmin && (
-                        <button
-                          onClick={() => handleRemoveRemote(remote)}
-                          title="Eliminar del catálogo"
-                          className="w-8 h-8 rounded-md bg-bg-hover text-neutral-400 hover:text-red-400 flex items-center justify-center transition-colors"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          {!remoteLoading && remoteInstances.length === 0 && (
-            <p className="col-span-4 text-xs text-neutral-600 mt-2">
-              Aún no hay instancias publicadas en el servidor.
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Local instances */}
-      <div className="flex items-center gap-2 mt-8">
-        <h2 className="text-sm font-semibold text-neutral-300">Mis instancias</h2>
-      </div>
-
       {pendingSync > 0 && (
-        <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mt-3">
+        <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mt-4">
           <CloudUpload size={14} className="shrink-0" />
           {pendingSync} cambio(s) pendiente(s) de sincronizar. Se enviarán automáticamente cuando haya conexión.
         </div>
       )}
 
-      <div className="grid grid-cols-4 gap-4 mt-3">
-        {loading &&
-          instances.length === 0 &&
+      {/* Grid unificado: catálogo + locales */}
+      <div className="grid grid-cols-4 gap-4 mt-5">
+        {remoteLoading && remoteInstances.length === 0 && instances.length === 0 &&
           Array.from({ length: 4 }).map((_, i) => <InstanceCardSkeleton key={i} />)}
 
-        {instances.map((instance) => (
+        {/* Instancias del catálogo remoto */}
+        {remoteInstances.map((remote) => {
+          const local = findLocalForRemote(remote);
+          const p = progress[`remote:${remote.id}`];
+          const busy = !!p && p.stage !== "done" && p.stage !== "error";
+
+          // Si ya está instalada, mostrar como InstanceCard local (con Jugar + sync badge)
+          if (local) {
+            return (
+              <InstanceCard
+                key={remote.id}
+                instance={local}
+                progress={progress[local.id]}
+                canManage={isAdmin}
+                onPlay={() => handlePlay(local)}
+                onEdit={() => {
+                  setEditing(local);
+                  setModalOpen(true);
+                }}
+                onPublish={isAdmin ? () => handlePublish(local) : undefined}
+                syncResult={lastModSync[local.id]}
+              />
+            );
+          }
+
+          // No instalada: tarjeta con botón Instalar
+          return (
+            <div
+              key={remote.id}
+              className="bg-bg-card border border-border rounded-xl overflow-hidden flex flex-col"
+            >
+              <div
+                className="h-24 w-full bg-gradient-to-br from-accent/30 to-violet-600/20 bg-cover bg-center"
+                style={{
+                  ...(remote.coverImage ? { backgroundImage: `url(${remote.coverImage})` } : {}),
+                  imageRendering: "auto",
+                }}
+              />
+              <div className="p-3 flex flex-col gap-2 flex-1">
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-semibold truncate">{remote.name}</p>
+                    {isAdmin && remote.whitelistEnabled && (
+                      <span
+                        title={`Solo visible para: ${remote.allowedDiscordIds.join(", ") || "nadie"}`}
+                        className="shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 border border-amber-500/30 text-amber-400"
+                      >
+                        <Lock size={9} />
+                        Whitelist
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-neutral-500">
+                    {remote.version} · {remote.loader === "fabric" ? "Fabric" : "Vanilla"} ·{" "}
+                    {formatBytes(remote.sizeBytes)} · {remote.downloads} descargas
+                  </p>
+                </div>
+
+                {busy ? (
+                  <div className="mt-auto">
+                    <div className="w-full h-1.5 bg-bg rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-accent-soft transition-[width] duration-200"
+                        style={{
+                          width:
+                            p.totalBytes > 0
+                              ? Math.min(100, (p.downloadedBytes / p.totalBytes) * 100)
+                              : 0,
+                        }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-neutral-500 mt-1 truncate">{p.log}</p>
+                  </div>
+                ) : (
+                  <div className="mt-auto flex items-center gap-2">
+                    <button
+                      onClick={() => handleInstallRemote(remote)}
+                      className="flex-1 h-8 rounded-md bg-accent hover:bg-accent/80 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <CloudDownload size={12} />
+                      Instalar
+                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleRemoveRemote(remote)}
+                        title="Eliminar del catálogo"
+                        className="w-8 h-8 rounded-md bg-bg-hover text-neutral-400 hover:text-red-400 flex items-center justify-center transition-colors"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Instancias locales que no están en el catálogo */}
+        {localOnlyInstances.map((instance) => (
           <InstanceCard
             key={instance.id}
             instance={instance}
@@ -286,13 +281,13 @@ export default function Instances() {
             syncResult={lastModSync[instance.id]}
           />
         ))}
-      </div>
 
-      {!loading && instances.length === 0 && (
-        <div className="mt-8 flex flex-col items-center gap-2 text-neutral-600">
-          <p className="text-sm">Aún no hay instancias creadas</p>
-        </div>
-      )}
+        {!remoteLoading && remoteInstances.length === 0 && instances.length === 0 && (
+          <p className="col-span-4 text-xs text-neutral-600 mt-2">
+            Aún no hay instancias. {isAdmin ? "Creá una o publicá desde el panel." : "Esperá a que el admin publique instancias."}
+          </p>
+        )}
+      </div>
 
       {isAdmin && (
         <InstanceModal
@@ -303,7 +298,6 @@ export default function Instances() {
         />
       )}
 
-      {/* Pantalla de lanzamiento */}
       <AnimatePresence>
         {launchingInstance && (
           <LaunchScreen

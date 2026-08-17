@@ -37,7 +37,10 @@ export default function InstanceCard({ instance, progress, canManage, onPlay, on
     >
       <div
         className="h-24 w-full bg-gradient-to-br from-accent/30 to-violet-600/20 bg-cover bg-center"
-        style={coverSrc ? { backgroundImage: `url(${coverSrc})` } : undefined}
+        style={{
+          ...(coverSrc ? { backgroundImage: `url(${coverSrc})` } : {}),
+          imageRendering: "auto",
+        }}
       />
       <div className="p-3 flex flex-col gap-2 flex-1">
         <div>

@@ -680,7 +680,7 @@ pub async fn list_mods(
 ) -> AppResult<Vec<RemoteMod>> {
     let base = api_base(settings)?;
     let resp = client
-        .get(format!("{base}/instances/{remote_id}/mods"))
+        .get(format!("{base}/api.php?action=mods&id={remote_id}"))
         .send()
         .await?
         .error_for_status()

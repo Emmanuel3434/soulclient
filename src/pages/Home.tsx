@@ -3,6 +3,7 @@ import { Clock, Monitor, Newspaper, Bell, RefreshCw } from "lucide-react";
 import Card from "@/components/common/Card";
 import { open } from "@tauri-apps/plugin-shell";
 import { getSupabaseNews, subscribeNewsRealtime, type SupabaseNewsItem } from "@/lib/supabase";
+import soul2Banner from "@/assets/soul2-banner.png";
 
 interface HomeStats {
   playTimeMs: number;
@@ -40,10 +41,21 @@ export default function Home() {
 
   return (
     <div className="flex-1 overflow-y-auto p-8">
-      <h1 className="text-2xl font-bold">Inicio</h1>
-      <p className="text-neutral-500 mt-1">Bienvenido de vuelta</p>
+      <div className="relative w-full h-40 rounded-xl overflow-hidden mb-6">
+        <img
+          src={soul2Banner}
+          alt="SoulClient Banner"
+          className="w-full h-full object-cover"
+          draggable={false}
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-bg/80 to-transparent" />
+        <div className="absolute bottom-4 left-5">
+          <h1 className="text-2xl font-bold text-white drop-shadow-lg">Inicio</h1>
+          <p className="text-neutral-300 text-sm mt-0.5">Bienvenido de vuelta</p>
+        </div>
+      </div>
 
-      <div className="grid grid-cols-2 gap-4 mt-6 max-w-xl">
+      <div className="grid grid-cols-2 gap-4 mt-2 max-w-xl">
         <Card className="flex items-center gap-3">
           <Clock size={18} className="text-accent-soft" />
           <div>

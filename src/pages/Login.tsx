@@ -4,6 +4,7 @@ import { AlertCircle, Loader2, ShieldCheck, Sparkles, User } from "lucide-react"
 import { useDiscordStore } from "@/state/discordStore";
 import { useAccountStore } from "@/state/accountStore";
 import { isMinecraftUsernameTaken } from "@/lib/supabase";
+import soulfotoLogo from "@/assets/soulfoto-banner.png";
 
 const DiscordIcon = () => (
   <svg width="18" height="18" viewBox="0 0 127.14 96.36" fill="currentColor">
@@ -65,10 +66,14 @@ export default function Login() {
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ delay: 0.1, type: "spring", bounce: 0.4 }}
-          className="text-3xl font-extrabold tracking-wide mb-1"
+          className="mb-1"
         >
-          <span className="text-accent-soft">Soul</span>
-          <span className="text-white">Client</span>
+          <img
+            src={soulfotoLogo}
+            alt="SoulClient"
+            className="h-16 w-auto object-contain mx-auto"
+            draggable={false}
+          />
         </motion.div>
 
         <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-accent/10 border border-accent/25 text-accent-soft text-xs font-medium my-3">

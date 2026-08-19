@@ -325,7 +325,68 @@
   <!-- ============ IMPORTAR MODPACK ============ -->
   <section class="tab-panel" id="tab-importar">
     <div class="section-head">
-      <h2>Mods y configuración</h2>
+      <h2>Importar Modpack</h2>
+    </div>
+
+    <div class="panel">
+      <h3>Importar desde .mrpack (Modrinth)</h3>
+      <p class="helper-text" style="margin:4px 0 10px;">Sube un archivo .mrpack — se crea la instancia automáticamente con todos los mods del Modrinth CDN.</p>
+      <div class="form-grid">
+        <div class="field"><label>Archivo .mrpack</label><input type="file" id="mrpack-file" accept=".mrpack,.zip"></div>
+      </div>
+      <button class="btn btn-sm" id="import-mrpack-btn" style="margin-top:14px;">Importar mrpack</button>
+      <div id="mrpack-progress" style="display:none;margin-top:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span class="helper-text" id="mrpack-status"></span>
+        </div>
+        <div style="width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+          <div id="mrpack-bar" style="width:0%;height:100%;background:var(--accent);border-radius:3px;transition:width .2s ease;"></div>
+        </div>
+      </div>
+      <p class="helper-text" id="mrpack-result" style="margin-top:8px;"></p>
+    </div>
+
+    <div style="border-top:1px solid var(--border);margin:22px 0;"></div>
+
+    <div class="panel">
+      <h3>Importar desde .zip (mods .jar)</h3>
+      <p class="helper-text" style="margin:4px 0 10px;">Sube un .zip que contenga archivos .jar — se suben a Storage y se registran como mods de la instancia.</p>
+      <div class="form-grid">
+        <div class="field"><label>Archivo .zip</label><input type="file" id="zip-file" accept=".zip"></div>
+        <div class="field"><label>Nombre de instancia</label><input type="text" id="zip-name" placeholder="Mi servidor"></div>
+        <div class="field"><label>Versión MC</label><input type="text" id="zip-version" placeholder="1.21.1" value="1.21.1"></div>
+        <div class="field"><label>Loader</label>
+          <select id="zip-loader">
+            <option value="fabric" selected>Fabric</option>
+            <option value="forge">Forge</option>
+            <option value="neoforge">NeoForge</option>
+            <option value="vanilla">Vanilla</option>
+          </select>
+        </div>
+        <div class="field"><label>Loader version</label><input type="text" id="zip-loader-version" placeholder="0.16.0 (opcional)"></div>
+        <div class="field"><label>Obligatorio</label>
+          <select id="zip-mandatory">
+            <option value="true" selected>Sí</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+      <button class="btn btn-sm" id="import-zip-btn" style="margin-top:14px;">Importar zip</button>
+      <div id="zip-progress" style="display:none;margin-top:12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span class="helper-text" id="zip-status"></span>
+        </div>
+        <div style="width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+          <div id="zip-bar" style="width:0%;height:100%;background:var(--accent);border-radius:3px;transition:width .2s ease;"></div>
+        </div>
+      </div>
+      <p class="helper-text" id="zip-result" style="margin-top:8px;"></p>
+    </div>
+
+    <div style="border-top:1px solid var(--border);margin:22px 0;"></div>
+
+    <div class="section-head">
+      <h2>Mods y configuración manual</h2>
     </div>
     <div class="panel">
       <div class="field" style="max-width:340px;">
@@ -336,10 +397,10 @@
 
     <div id="mp-content" style="display:none;">
       <div class="panel">
-        <h3>Añadir mod protegido</h3>
-        <p class="helper-text" style="margin:4px 0 10px;">Sube el .jar — se guarda cifrado en el ModVault del launcher (nunca como archivo plano en la instancia).</p>
+        <h3>Añadir mods protegidos</h3>
+        <p class="helper-text" style="margin:4px 0 10px;">Sube uno o varios .jar — se guardan cifrados en el ModVault del launcher.</p>
         <div class="form-grid">
-          <div class="field"><label>Archivo .jar</label><input type="file" id="mod-file" accept=".jar"></div>
+          <div class="field"><label>Archivos .jar</label><input type="file" id="mod-file" accept=".jar" multiple></div>
           <div class="field"><label>Fuente</label>
             <select id="mod-source">
               <option value="custom" selected>custom</option>
@@ -348,7 +409,16 @@
             </select>
           </div>
         </div>
-        <button class="btn btn-sm" id="add-mod-btn" style="margin-top:14px;">+ Subir mod</button>
+        <button class="btn btn-sm" id="add-mod-btn" style="margin-top:14px;">+ Subir mods</button>
+        <div id="mod-batch-progress" style="display:none;margin-top:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <span class="helper-text" id="mod-batch-status"></span>
+            <span class="helper-text" id="mod-batch-count"></span>
+          </div>
+          <div style="width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden;">
+            <div id="mod-batch-bar" style="width:0%;height:100%;background:var(--accent);border-radius:3px;transition:width .2s ease;"></div>
+          </div>
+        </div>
         <p class="helper-text" id="mod-upload-status" style="margin-top:8px;"></p>
       </div>
       <div class="row-list" id="mods-list"></div>
@@ -966,52 +1036,190 @@
     wrap.querySelectorAll('.cfg-del').forEach((b) => b.addEventListener('click', () => deleteRow('config_files', b.dataset.id, loadModpackData)));
   }
 
-  el('add-mod-btn').addEventListener('click', async () => {
-    const fileInput = el('mod-file');
+  // ---------------- Importar .mrpack (Modrinth) ----------------
+  el('import-mrpack-btn').addEventListener('click', async () => {
+    const fileInput = el('mrpack-file');
     const file = fileInput.files && fileInput.files[0];
-    const status = el('mod-upload-status');
-    if (!file) { toast('Selecciona un archivo .jar', true); return; }
-    if (!file.name.toLowerCase().endsWith('.jar')) { toast('Solo se aceptan archivos .jar', true); return; }
-    const btn = el('add-mod-btn');
+    const status = el('mrpack-status');
+    const progressWrap = el('mrpack-progress');
+    const progressBar = el('mrpack-bar');
+    const result = el('mrpack-result');
+    if (!file) { toast('Selecciona un archivo .mrpack', true); return; }
+    const btn = el('import-mrpack-btn');
     btn.disabled = true;
-    status.textContent = 'Calculando SHA-1…';
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '10%';
+    status.textContent = 'Subiendo y analizando mrpack…';
+    result.textContent = '';
     try {
-      const buf = await file.arrayBuffer();
-      const sha1 = await shaHex('SHA-1', buf);
-      status.textContent = `Subiendo ${file.name} (${formatBytes(file.size)})…`;
-      const { signedUrl } = await api(`api.php?action=sign_mod_upload&instance_id=${encodeURIComponent(state.mpInstanceId)}&file=${encodeURIComponent(file.name)}`);
-      const res = await fetch(signedUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/java-archive', 'x-upsert': 'true' },
-        body: file,
-      });
-      if (!res.ok) throw new Error('Supabase Storage respondió ' + res.status);
-      const storagePath = `mods/${state.mpInstanceId}/${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`;
-      const downloadUrl = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${storagePath}`;
-      await api('api.php?action=insert&table=mods', {
+      const formData = new FormData();
+      formData.append('mrpack', file);
+      const resp = await fetch('api.php?action=import_mrpack', {
         method: 'POST',
-        body: JSON.stringify({
-          instance_id: state.mpInstanceId,
-          file_name: file.name,
-          storage_path: storagePath,
-          sha1,
-          size_bytes: file.size,
-          source: el('mod-source').value,
-          is_mandatory: true,
-          download_url: downloadUrl,
-        }),
+        body: formData,
       });
-      el('mod-file').value = '';
-      el('mod-source').value = '';
-      status.textContent = `Subido · ${formatBytes(file.size)} · sha1 ${shortSha(sha1)}`;
-      toast('Mod subido y registrado');
-      loadModpackData();
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Error desconocido');
+      progressBar.style.width = '100%';
+      status.textContent = 'Importación completada';
+      result.innerHTML = `<strong style="color:var(--ok);">✓ Importado</strong><br>
+        Instancia: <strong>${escapeHtml(data.name)}</strong> (${data.mcVersion})<br>
+        Loader: ${escapeHtml(data.loader)} ${escapeHtml(data.loaderVersion || '')}<br>
+        Mods registrados: <strong>${data.modsCreated}</strong><br>
+        <span style="color:var(--muted);font-size:12px;">ID: ${data.instanceId}</span>`;
+      toast(`${data.name} importado — ${data.modsCreated} mods`);
+      fileInput.value = '';
+      loadInstances();
     } catch (err) {
-      status.textContent = 'Error: ' + err.message;
-      toast('Error al subir el mod: ' + err.message, true);
+      status.textContent = 'Error';
+      result.textContent = 'Error: ' + err.message;
+      toast('Error al importar: ' + err.message, true);
     } finally {
       btn.disabled = false;
     }
+  });
+
+  // ---------------- Importar .zip (mods .jar) ----------------
+  el('import-zip-btn').addEventListener('click', async () => {
+    const fileInput = el('zip-file');
+    const file = fileInput.files && fileInput.files[0];
+    const status = el('zip-status');
+    const progressWrap = el('zip-progress');
+    const progressBar = el('zip-bar');
+    const result = el('zip-result');
+    if (!file) { toast('Selecciona un archivo .zip', true); return; }
+    if (!file.name.toLowerCase().endsWith('.zip')) { toast('Solo se aceptan archivos .zip', true); return; }
+    const name = el('zip-name').value.trim() || file.name.replace(/\.zip$/i, '');
+    const btn = el('import-zip-btn');
+    btn.disabled = true;
+    progressWrap.style.display = 'block';
+    progressBar.style.width = '10%';
+    status.textContent = 'Subiendo y procesando zip…';
+    result.textContent = '';
+    try {
+      progressBar.style.width = '30%';
+      status.textContent = 'Subiendo mods a Storage…';
+      const formData = new FormData();
+      formData.append('zip', file);
+      formData.append('name', name);
+      formData.append('mc_version', el('zip-version').value.trim() || '1.21.1');
+      formData.append('loader', el('zip-loader').value);
+      formData.append('loader_version', el('zip-loader-version').value.trim() || null);
+      formData.append('is_mandatory', el('zip-mandatory').value);
+      const resp = await fetch('api.php?action=import_zip', {
+        method: 'POST',
+        body: formData,
+      });
+      progressBar.style.width = '80%';
+      const data = await resp.json();
+      if (!resp.ok || !data.ok) throw new Error(data.error || 'Error desconocido');
+      progressBar.style.width = '100%';
+      status.textContent = 'Importación completada';
+      const sizeMB = data.totalSizeBytes ? (data.totalSizeBytes / 1048576).toFixed(1) + ' MB' : '?';
+      result.innerHTML = `<strong style="color:var(--ok);">✓ Importado</strong><br>
+        Instancia: <strong>${escapeHtml(data.name)}</strong> (${data.mcVersion})<br>
+        Loader: ${escapeHtml(data.loader)}<br>
+        Mods subidos: <strong>${data.modsCreated}</strong> (${sizeMB})<br>
+        <span style="color:var(--muted);font-size:12px;">ID: ${data.instanceId}</span>`;
+      toast(`${data.name} importado — ${data.modsCreated} mods`);
+      fileInput.value = '';
+      el('zip-name').value = '';
+      loadInstances();
+    } catch (err) {
+      status.textContent = 'Error';
+      result.textContent = 'Error: ' + err.message;
+      toast('Error al importar: ' + err.message, true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  el('add-mod-btn').addEventListener('click', async () => {
+    const fileInput = el('mod-file');
+    const files = fileInput.files;
+    const status = el('mod-upload-status');
+    const progressWrap = el('mod-batch-progress');
+    const progressBar = el('mod-batch-bar');
+    const batchStatus = el('mod-batch-status');
+    const batchCount = el('mod-batch-count');
+    if (!files || files.length === 0) { toast('Selecciona al menos un archivo .jar', true); return; }
+
+    const jarFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.jar'));
+    if (jarFiles.length === 0) { toast('Solo se aceptan archivos .jar', true); return; }
+    if (jarFiles.length < files.length) {
+      toast(`${files.length - jarFiles.length} archivo(s) ignorados (no son .jar)`);
+    }
+
+    const btn = el('add-mod-btn');
+    btn.disabled = true;
+    let uploaded = 0;
+    let errors = 0;
+    const total = jarFiles.length;
+
+    if (total > 1) {
+      progressWrap.style.display = 'block';
+      progressBar.style.width = '0%';
+      batchCount.textContent = `0/${total}`;
+      batchStatus.textContent = 'Preparando…';
+    }
+
+    for (let i = 0; i < jarFiles.length; i++) {
+      const file = jarFiles[i];
+      const pct = Math.round(((i) / total) * 100);
+      if (total > 1) {
+        progressBar.style.width = pct + '%';
+        batchCount.textContent = `${i}/${total}`;
+        batchStatus.textContent = `SHA-1 de ${file.name}…`;
+      }
+      status.textContent = `(${i+1}/${total}) Calculando SHA-1 de ${file.name}…`;
+      try {
+        const buf = await file.arrayBuffer();
+        const sha1 = await shaHex('SHA-1', buf);
+        if (total > 1) batchStatus.textContent = `Subiendo ${file.name}…`;
+        status.textContent = `(${i+1}/${total}) Subiendo ${file.name} (${formatBytes(file.size)})…`;
+        const { signedUrl } = await api(`api.php?action=sign_mod_upload&instance_id=${encodeURIComponent(state.mpInstanceId)}&file=${encodeURIComponent(file.name)}`);
+        const res = await fetch(signedUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/java-archive', 'x-upsert': 'true' },
+          body: file,
+        });
+        if (!res.ok) throw new Error('Supabase Storage respondió ' + res.status);
+        const storagePath = `mods/${state.mpInstanceId}/${file.name.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+        const downloadUrl = `${SUPABASE_URL}/storage/v1/object/public/${SUPABASE_BUCKET}/${storagePath}`;
+        await api('api.php?action=insert&table=mods', {
+          method: 'POST',
+          body: JSON.stringify({
+            instance_id: state.mpInstanceId,
+            file_name: file.name,
+            storage_path: storagePath,
+            sha1,
+            size_bytes: file.size,
+            source: el('mod-source').value,
+            is_mandatory: true,
+            download_url: downloadUrl,
+          }),
+        });
+        uploaded++;
+      } catch (err) {
+        errors++;
+        status.textContent = `(${i+1}/${total}) Error en ${file.name}: ${err.message}`;
+        toast(`Error en ${file.name}: ${err.message}`, true);
+      }
+    }
+
+    if (total > 1) {
+      progressBar.style.width = '100%';
+      batchStatus.textContent = `Completado — ${uploaded} subido(s)${errors ? `, ${errors} error(es)` : ''}`;
+      batchCount.textContent = `${total}/${total}`;
+    }
+
+    el('mod-file').value = '';
+    status.textContent = total === 1
+      ? `Subido · ${formatBytes(jarFiles[0].size)} · sha1 ${shortSha(jarFiles[0].sha1 || '')}`
+      : `Listo — ${uploaded} mod(s) subido(s)${errors ? `, ${errors} error(es)` : ''}`;
+    toast(uploaded > 0 ? `${uploaded} mod(s) subido(s)` : 'Ningún mod subido');
+    loadModpackData();
+    btn.disabled = false;
   });
 
   el('add-cfg-btn').addEventListener('click', async () => {

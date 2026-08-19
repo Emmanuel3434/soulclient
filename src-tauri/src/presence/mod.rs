@@ -88,10 +88,11 @@ impl DiscordPresence {
         let now = chrono::Utc::now().timestamp();
         let mut guard = self.client.lock().unwrap();
         if let Some(client) = guard.as_mut() {
+            let detail = format!("Jugando {}", instance_name);
             let _ = client.set_activity(
                 Activity::new()
-                    .details("Jugando SoulClient")
-                    .state(instance_name)
+                    .details(&detail)
+                    .state("SoulClient")
                     .assets(
                         Assets::new()
                             .large_image(LARGE_IMAGE_KEY)

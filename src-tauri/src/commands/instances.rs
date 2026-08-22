@@ -328,7 +328,103 @@ pub async fn install_remote_instance(
         ));
     }
 
-    crate::remote::install(&state.http_client, &settings, &id, &app, &state.instances).await
+    let instance = crate::remote::install(&state.http_client, &settings, &id, &app, &state.instances).await?;
+
+    let emit = |stage: &str, file: Option<String>, downloaded: u64, total: u64, log: String| {
+        downloader::emit_progress(
+            &app,
+            DownloadProgress {
+                instance_id: instance.id.clone(),
+                stage: stage.to_string(),
+                file_name: file,
+                downloaded_bytes: downloaded,
+                total_bytes: total,
+                speed_bps: 0,
+                eta_seconds: 0,
+                log,
+            },
+        );
+    };
+
+    emit("manifest", None, 0, 0, format!("Resolviendo version {}...", instance.version));
+    let versions = manifest::fetch_version_manifest(&state.http_client).await?;
+    let entry = versions
+        .iter()
+        .find(|v| v.id == instance.version)
+        .ok_or_else(|| AppError::from("Version no encontrada en el manifiesto"))?;
+
+    let mut version_json = manifest::fetch_version_detail(&state.http_client, &entry.url).await?;
+
+    let mut updated_instance = instance.clone();
+    if instance.loader == crate::instances::LoaderType::Fabric {
+        emit("fabric", None, 0, 0, "Resolviendo Fabric Loader...".into());
+        let loader_version = match &instance.loader_version {
+            Some(v) if !v.is_empty() => v.clone(),
+            _ => fabric::fetch_loader_versions(&state.http_client, &instance.version)
+                .await?
+                .into_iter()
+                .next()
+                .ok_or_else(|| AppError::from("No hay versiones de Fabric disponibles"))?,
+        };
+
+        if updated_instance.loader_version.as_deref() != Some(loader_version.as_str()) {
+            updated_instance.loader_version = Some(loader_version.clone());
+        }
+
+        let fabric_meta = fabric::fetch_launcher_meta(&state.http_client, &instance.version, &loader_version).await?;
+
+        let fabric_main_class = fabric_meta
+            .get("mainClass")
+            .and_then(|m| m.as_str())
+            .ok_or_else(|| AppError::from("El perfil de Fabric Loader no incluye mainClass."))?;
+        version_json["mainClass"] = serde_json::Value::String(fabric_main_class.to_string());
+
+        let fabric_libraries = fabric_meta
+            .get("libraries")
+            .and_then(|l| l.as_array())
+            .ok_or_else(|| AppError::from("El perfil de Fabric Loader no incluye librerias."))?;
+        let base = version_json
+            .get_mut("libraries")
+            .and_then(|l| l.as_array_mut())
+            .ok_or_else(|| AppError::from("El version JSON base no tiene un array de librerias."))?;
+        base.extend(fabric_libraries.iter().cloned());
+    }
+
+    let client_jar = libraries::resolve_client_jar(&version_json, &instance.version)?;
+    let lib_files = libraries::resolve_libraries(&version_json);
+
+    emit("client", None, 0, 0, "Descargando cliente de Minecraft...".into());
+    libraries::download_files(&state.http_client, vec![client_jar], |name, d, t| {
+        emit("client", Some(name.to_string()), d, t, format!("{name}"));
+    })
+    .await?;
+
+    emit("libraries", None, 0, 0, format!("Descargando {} librerias...", lib_files.len()));
+    libraries::download_files(&state.http_client, lib_files, |name, d, t| {
+        emit("libraries", Some(name.to_string()), d, t, format!("{name}"));
+    })
+    .await?;
+
+    emit("assets", None, 0, 0, "Resolviendo assets...".into());
+    let asset_files = assets::resolve_assets(&state.http_client, &version_json).await?;
+    emit("assets", None, 0, 0, format!("Descargando {} assets...", asset_files.len()));
+    libraries::download_files(&state.http_client, asset_files, |name, d, t| {
+        emit("assets", Some(name.to_string()), d, t, format!("{name}"));
+    })
+    .await?;
+
+    let version_cache_key = updated_instance.version_cache_key();
+    let version_dir = AppPaths::versions_dir().join(&version_cache_key);
+    std::fs::create_dir_all(&version_dir).map_err(AppError::from)?;
+    std::fs::write(
+        version_dir.join(format!("{version_cache_key}.json")),
+        serde_json::to_vec_pretty(&version_json)?,
+    )
+    .map_err(AppError::from)?;
+
+    let final_instance = state.instances.update(updated_instance)?;
+    emit("done", None, 0, 0, "Instancia instalada".into());
+    Ok(final_instance)
 }
 
 /// Admin-only: packages a local instance (its folder + version/libraries/

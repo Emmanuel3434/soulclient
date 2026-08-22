@@ -531,11 +531,8 @@ pub async fn install(
     app: &tauri::AppHandle,
     instances: &InstanceStore,
 ) -> AppResult<InstanceConfig> {
-    let base = api_base(settings)?;
     let meta = get(client, settings, remote_id).await?;
     let new_id = Uuid::new_v4().to_string();
-    let zip_path = AppPaths::cache_dir().join(format!("remote_{remote_id}.zip"));
-    std::fs::create_dir_all(AppPaths::cache_dir()).ok();
 
     let emit = |stage: &str, file: Option<String>, done: u64, total: u64, log: String| {
         emit_progress(
@@ -553,86 +550,13 @@ pub async fn install(
         );
     };
 
-    emit("download", None, 0, 0, format!("Descargando {}...", meta.name));
-    let resp = client
-        .get(format!("{base}/instances/{remote_id}/download"))
-        .send()
-        .await?
-        .error_for_status()
-        .map_err(|e| AppError::from(format!("Error al descargar la instancia: {e}")))?;
-    let total = resp.content_length().unwrap_or(0);
-
-    let mut stream = resp.bytes_stream();
-    let mut out = tokio::fs::File::create(&zip_path).await?;
-    let mut done: u64 = 0;
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        out.write_all(&chunk).await?;
-        done += chunk.len() as u64;
-        let pct = if total > 0 { done * 100 / total } else { 0 };
-        emit("download", None, done, total, format!("Descargando... {pct}%"));
-    }
-    out.flush().await?;
-    emit("download", None, done, total, "Descarga completada".into());
-
-    // Validar que lo descargado sea un ZIP válido antes de tocar nada más.
-    emit("verify", None, 0, 0, "Validando archivo ZIP...".into());
-    {
-        let file = std::fs::File::open(&zip_path)?;
-        if zip::ZipArchive::new(file).is_err() {
-            let _ = std::fs::remove_file(&zip_path);
-            tracing::error!("Invalid ZIP downloaded for instance {remote_id}");
-            return Err(AppError::from(
-                "El archivo descargado no es un ZIP válido. Descarga corrupta, inténtalo de nuevo.",
-            ));
-        }
-    }
-
-    // Verificación SHA-256 sobre EXACTAMENTE el ZIP descargado (no sobre la
-    // carpeta extraída). Si el servidor proporcionó un hash se compara y ante
-    // cualquier diferencia se rechaza la descarga. Si la instancia vino sin
-    // hash registrado (instancias creadas antes de existir la columna sha256)
-    // se avisa de forma visible pero no se bloquea la instalación.
-    if !meta.sha256.is_empty() {
-        emit("verify", None, 0, 0, "Verificando SHA-256...".into());
-        let actual = sha256_file(&zip_path)?;
-        if !meta.sha256.eq_ignore_ascii_case(&actual) {
-            let _ = std::fs::remove_file(&zip_path);
-            tracing::error!(
-                "SHA-256 mismatch for instance {remote_id}: expected={} got={}",
-                meta.sha256,
-                actual
-            );
-            return Err(AppError::from(
-                "La descarga no pasó la verificación SHA-256. Archivo modificado o corrupto, inténtalo de nuevo.",
-            ));
-        }
-        emit("verify", None, 0, 0, "SHA-256 correcto".into());
-        tracing::info!("SHA-256 verified OK for instance {remote_id}");
-    } else {
-        emit(
-            "verify",
-            None,
-            0,
-            0,
-            "Sin SHA-256 registrado — verificación omitida".into(),
-        );
-        tracing::warn!(
-            "Instancia {remote_id} no tiene SHA-256 registrado — verificación de integridad omitida."
-        );
-    }
-
-    emit("extract", None, 0, 0, "Extrayendo instancia...".into());
-    extract_zip(&zip_path, &new_id, |file, done, total| {
-        emit("extract", Some(file), done, total, "Extrayendo instancia...".into());
-    })?;
-    let _ = std::fs::remove_file(&zip_path);
-    emit("done", None, done, done, "Instancia instalada".into());
-
     let loader = match meta.loader.as_str() {
         "fabric" => LoaderType::Fabric,
         _ => LoaderType::Vanilla,
     };
+
+    let instance_dir = AppPaths::instance_dir(&new_id);
+    std::fs::create_dir_all(instance_dir.join("mods")).map_err(AppError::from)?;
 
     let config = InstanceConfig {
         id: new_id.clone(),
@@ -640,7 +564,7 @@ pub async fn install(
         version: meta.version.clone(),
         loader,
         loader_version: meta.loader_version.clone(),
-        directory: AppPaths::instance_dir(&new_id).to_string_lossy().to_string(),
+        directory: instance_dir.to_string_lossy().to_string(),
         cover_image: meta.cover_image.clone(),
         ram_mb: 4096,
         jvm_args: String::new(),
@@ -656,6 +580,9 @@ pub async fn install(
         remote_id: Some(meta.id.clone()),
     };
     instances.insert(config.clone())?;
+
+    tracing::info!("install: created instance {} (remote={})", config.id, remote_id);
+
     Ok(config)
 }
 
